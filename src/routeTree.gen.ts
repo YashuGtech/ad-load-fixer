@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as CampaignsRouteImport } from './routes/campaigns'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as ProfileRouteImport } from './routes/profile'
@@ -18,6 +19,11 @@ import { Route as PromoteRouteImport } from './routes/promote'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CampaignsRoute = CampaignsRouteImport.update({
@@ -43,6 +49,7 @@ const PromoteRoute = PromoteRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/campaigns': typeof CampaignsRoute
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/campaigns': typeof CampaignsRoute
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/campaigns': typeof CampaignsRoute
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
@@ -65,14 +74,22 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/campaigns' | '/leads' | '/profile' | '/promote'
+  fullPaths: '/' | '/admin' | '/campaigns' | '/leads' | '/profile' | '/promote'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/campaigns' | '/leads' | '/profile' | '/promote'
-  id: '__root__' | '/' | '/campaigns' | '/leads' | '/profile' | '/promote'
+  to: '/' | '/admin' | '/campaigns' | '/leads' | '/profile' | '/promote'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/campaigns'
+    | '/leads'
+    | '/profile'
+    | '/promote'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   CampaignsRoute: typeof CampaignsRoute
   LeadsRoute: typeof LeadsRoute
   ProfileRoute: typeof ProfileRoute
@@ -86,6 +103,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/campaigns': {
@@ -121,6 +145,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   CampaignsRoute: CampaignsRoute,
   LeadsRoute: LeadsRoute,
   ProfileRoute: ProfileRoute,
