@@ -35,7 +35,7 @@ export default function MonetagAdManager() {
   }, []);
 
   if (!blocked) return null;
-  const msg = AD_FAIL_MESSAGES[blocked];
+  const msg = (AD_FAIL_MESSAGES as Record<string, { title: string; description: string }>)[blocked];
   if (!msg) return null;
 
   return (
