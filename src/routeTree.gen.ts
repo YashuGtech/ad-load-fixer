@@ -15,6 +15,7 @@ import { Route as CampaignsRouteImport } from './routes/campaigns'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PromoteRouteImport } from './routes/promote'
+import { Route as UsersHandleRouteImport } from './routes/users.$handle'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +47,11 @@ const PromoteRoute = PromoteRouteImport.update({
   path: '/promote',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UsersHandleRoute = UsersHandleRouteImport.update({
+  id: '/users/$handle',
+  path: '/users/$handle',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -54,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
+  '/users/$handle': typeof UsersHandleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByTo {
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
+  '/users/$handle': typeof UsersHandleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,12 +79,27 @@ export interface FileRoutesById {
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
+  '/users/$handle': typeof UsersHandleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/campaigns' | '/leads' | '/profile' | '/promote'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/campaigns'
+    | '/leads'
+    | '/profile'
+    | '/promote'
+    | '/users/$handle'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/campaigns' | '/leads' | '/profile' | '/promote'
+  to:
+    | '/'
+    | '/admin'
+    | '/campaigns'
+    | '/leads'
+    | '/profile'
+    | '/promote'
+    | '/users/$handle'
   id:
     | '__root__'
     | '/'
@@ -85,6 +108,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/profile'
     | '/promote'
+    | '/users/$handle'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -94,6 +118,7 @@ export interface RootRouteChildren {
   LeadsRoute: typeof LeadsRoute
   ProfileRoute: typeof ProfileRoute
   PromoteRoute: typeof PromoteRoute
+  UsersHandleRoute: typeof UsersHandleRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -140,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PromoteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/users/$handle': {
+      id: '/users/$handle'
+      path: '/users/$handle'
+      fullPath: '/users/$handle'
+      preLoaderRoute: typeof UsersHandleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -150,6 +182,7 @@ const rootRouteChildren: RootRouteChildren = {
   LeadsRoute: LeadsRoute,
   ProfileRoute: ProfileRoute,
   PromoteRoute: PromoteRoute,
+  UsersHandleRoute: UsersHandleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
