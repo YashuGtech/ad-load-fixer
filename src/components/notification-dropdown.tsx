@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, UserPlus, Megaphone, FileCheck2, Flag, Gift, Coins, CheckCheck, Info } from "lucide-react";

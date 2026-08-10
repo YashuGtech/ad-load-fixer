@@ -1,7 +1,5 @@
-"use client";
-
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname } from "@/lib/navigation";
 import { Send, Smartphone, Sparkles, ShieldCheck } from "lucide-react";
 import { isAdmin } from "@/lib/admin";
 

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { Zap, Play, Loader2, WifiOff } from "lucide-react";
 import { useApp } from "@/lib/store";

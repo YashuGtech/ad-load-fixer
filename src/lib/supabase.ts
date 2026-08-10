@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Frontend-only Supabase integration — NO backend / Node routes required.
  *
@@ -32,8 +30,8 @@ import type {
   WithdrawalRequest,
 } from "./types";
 
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const URL = import.meta.env.VITE_SUPABASE_URL || "";
+const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 let client: SupabaseClient | null = null;
 let adminSecret: string | null = null; // set after the admin panel unlocks

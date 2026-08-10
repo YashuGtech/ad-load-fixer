@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Monetag Telegram Mini App SDK (docs.monetag.com).
  *

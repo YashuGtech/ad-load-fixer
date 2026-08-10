@@ -1,5 +1,3 @@
-"use client";
-
 import { Ban, ShieldAlert, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useApp } from "@/lib/store";

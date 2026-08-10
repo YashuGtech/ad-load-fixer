@@ -1,7 +1,5 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from "@/lib/navigation";
+import { usePathname } from "@/lib/navigation";
 import { Zap, Rocket, ClipboardList, FileCheck2, User } from "lucide-react";
 import clsx from "clsx";
 import { motion } from "framer-motion";

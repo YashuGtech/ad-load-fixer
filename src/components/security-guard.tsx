@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { useApp } from "@/lib/store";

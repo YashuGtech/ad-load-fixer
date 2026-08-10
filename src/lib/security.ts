@@ -1,5 +1,3 @@
-"use client";
-
 import { isAdmin } from "./admin";
 
 /**
@@ -139,7 +137,7 @@ export async function checkSecurity(): Promise<SecurityVerdict> {
 
   inFlight = (async (): Promise<SecurityVerdict> => {
     const requireTelegram =
-      process.env.NEXT_PUBLIC_REQUIRE_TELEGRAM === "1";
+      import.meta.env.VITE_REQUIRE_TELEGRAM === "1";
     const rec = readRecord();
     const fp = deviceFingerprint();
     rec.fingerprint = fp;
@@ -152,7 +150,7 @@ export async function checkSecurity(): Promise<SecurityVerdict> {
     // NEXT_PUBLIC_ALLOW_MULTI_ACCOUNT=1 (owner request) disables the
     // one-account-per-device ban — any account may be used on this device.
     const allowMulti =
-      process.env.NEXT_PUBLIC_ALLOW_MULTI_ACCOUNT === "1";
+      import.meta.env.VITE_ALLOW_MULTI_ACCOUNT === "1";
     if (user) {
       if (!allowMulti && rec.tgId !== null && rec.tgId !== user.id) {
         rec.violations = [

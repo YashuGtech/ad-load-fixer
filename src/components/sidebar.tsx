@@ -1,7 +1,5 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from "@/lib/navigation";
+import { usePathname } from "@/lib/navigation";
 import { motion } from "framer-motion";
 import {
   Zap,
@@ -16,7 +14,7 @@ import {
 import clsx from "clsx";
 import { isAdmin } from "@/lib/admin";
 
-const OWNER_TG = process.env.NEXT_PUBLIC_OWNER_TG || "owner";
+const OWNER_TG = import.meta.env.VITE_OWNER_TG || "owner";
 
 const NAV = [
   { href: "/", label: "Earn Tasks", icon: Zap, accent: "from-cyan-400 to-violet-500" },

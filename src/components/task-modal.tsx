@@ -1,5 +1,3 @@
-"use client";
-
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 import { X, ExternalLink, Send, Clock, ShieldAlert, CheckCircle2, Image as ImgIcon, Gift, Star, Link2 } from "lucide-react";

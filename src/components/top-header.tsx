@@ -1,7 +1,5 @@
-"use client";
-
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck, Zap } from "lucide-react";
 import { useApp } from "@/lib/store";

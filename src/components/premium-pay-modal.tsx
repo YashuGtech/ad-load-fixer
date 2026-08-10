@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { X, Crown, Loader2, CheckCircle2, ExternalLink, RefreshCw, TriangleAlert } from "lucide-react";

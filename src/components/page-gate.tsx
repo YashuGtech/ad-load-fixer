@@ -1,8 +1,6 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from "@/lib/navigation";
+import { usePathname } from "@/lib/navigation";
 import { motion } from "framer-motion";
 import { Lock, Zap, Play, Loader2, ArrowLeft, Sparkles } from "lucide-react";
 import { useApp } from "@/lib/store";
