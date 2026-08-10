@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CampaignsRouteImport } from './routes/campaigns'
 import { Route as LeadsRouteImport } from './routes/leads'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PromoteRouteImport } from './routes/promote'
 
 const IndexRoute = IndexRouteImport.update({
@@ -29,6 +30,11 @@ const LeadsRoute = LeadsRouteImport.update({
   path: '/leads',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PromoteRoute = PromoteRouteImport.update({
   id: '/promote',
   path: '/promote',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/campaigns': typeof CampaignsRoute
   '/leads': typeof LeadsRoute
+  '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/campaigns': typeof CampaignsRoute
   '/leads': typeof LeadsRoute
+  '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
 }
 export interface FileRoutesById {
@@ -52,20 +60,22 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/campaigns': typeof CampaignsRoute
   '/leads': typeof LeadsRoute
+  '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/campaigns' | '/leads' | '/promote'
+  fullPaths: '/' | '/campaigns' | '/leads' | '/profile' | '/promote'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/campaigns' | '/leads' | '/promote'
-  id: '__root__' | '/' | '/campaigns' | '/leads' | '/promote'
+  to: '/' | '/campaigns' | '/leads' | '/profile' | '/promote'
+  id: '__root__' | '/' | '/campaigns' | '/leads' | '/profile' | '/promote'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CampaignsRoute: typeof CampaignsRoute
   LeadsRoute: typeof LeadsRoute
+  ProfileRoute: typeof ProfileRoute
   PromoteRoute: typeof PromoteRoute
 }
 
@@ -92,6 +102,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LeadsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/promote': {
       id: '/promote'
       path: '/promote'
@@ -106,6 +123,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CampaignsRoute: CampaignsRoute,
   LeadsRoute: LeadsRoute,
+  ProfileRoute: ProfileRoute,
   PromoteRoute: PromoteRoute,
 }
 export const routeTree = rootRouteImport
