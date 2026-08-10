@@ -779,7 +779,7 @@ export function syncNow(scopes: SyncScope[], state: any): void {
         );
         break;
       case "chats":
-        Object.values(state.chats ?? {})
+        (Object.values(state.chats ?? {}) as ChatMessage[][])
           .flat()
           .forEach((m: ChatMessage) => queueWrite("chat_messages", chatMessageToRow(m)));
         break;
@@ -863,7 +863,7 @@ export async function fetchUserData(): Promise<{
       until: Date.parse(r.until) || 0,
       reason: r.reason ?? "Banned",
     }))
-    .filter((b) => b.until > Date.now());
+    .filter((b: { until: number }) => b.until > Date.now());
   return {
     // maybeSingle may be replaced by an empty array when the read was saved;
     // normalise so a missing profile is null, never [] or an error artifact.

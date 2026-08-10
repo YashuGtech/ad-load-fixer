@@ -1051,7 +1051,7 @@ export const useApp = create<AppState>()(
           tags: cleanTags,
           likes: 0,
           boosted: false,
-          boostUntil: null,
+          boostUntil: undefined,
           createdAt: nowMs,
         };
         const campaign: Campaign = {
@@ -1080,7 +1080,7 @@ export const useApp = create<AppState>()(
           tags: cleanTags,
           likes: 0,
           boosted: false,
-          boostUntil: null,
+          boostUntil: undefined,
           createdAt: nowMs,
         };
         set((s) => ({ tasks: [task, ...s.tasks], campaigns: [campaign, ...s.campaigns], daily: { ...s.daily, posts: s.daily.posts + 1 } }));
