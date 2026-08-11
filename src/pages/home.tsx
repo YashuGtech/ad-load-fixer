@@ -466,14 +466,14 @@ function Stat({
     emerald: "from-emerald-500/20 to-transparent border-emerald-400/20",
   }[tone];
   return (
-    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br", toneBg)}>
+    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br min-w-0", toneBg)}>
       <div className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-        {icon} {label}
+        <span className="shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
       </div>
-      <div className="font-extrabold text-2xl tabular mt-1">
-        {value}
-        {suffix && <span className="text-sm text-gray-400 ml-1">{suffix}</span>}
-      </div>
+      <div className="font-extrabold text-xl lg:text-2xl tabular mt-1 leading-tight break-words">{value}</div>
+      {suffix && <div className="text-[11px] lg:text-xs text-gray-400 mt-0.5 leading-snug">{suffix}</div>}
     </div>
   );
+
 }
