@@ -8,6 +8,8 @@ import PlatformIcon from "@/components/platform-icon";
 import TaskModal from "@/components/task-modal";
 import AdEarnCard from "@/components/ad-earn-card";
 import BanBanner from "@/components/ban-banner";
+import ReferralBanner from "@/components/referral-banner";
+
 import FollowButton from "@/components/follow-button";
 import VerifiedTick from "@/components/verified-tick";
 import clsx from "clsx";
