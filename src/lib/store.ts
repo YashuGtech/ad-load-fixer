@@ -1561,24 +1561,29 @@ export const useApp = create<AppState>()(
         const own = (get().referralCode || "").toLowerCase().replace(/^@/, "");
         if (own === c) return { ok: false, error: "That's your own code — share it with friends instead." };
 
-        // Resolve the code to a real user (DB mode) so THEY get rewarded.
+        // Resolve the code to a real user so THEY get rewarded.
         let inviter: { handle: string } | null = null;
         if (isSupabaseReady()) {
           inviter = await findUserByCode(c).catch(() => null);
+          // Never lock the user in on a code that resolves to nobody — otherwise
+          // a typo would permanently burn their one-time entry.
+          if (!inviter) return { ok: false, error: "That referral code doesn't exist — check it and try again." };
+          if (inviter.handle === currentUserId()) return { ok: false, error: "That's your own code — share it with friends instead." };
         } else {
           const u = getUser(c);
           inviter = u && u.handle ? u : null;
         }
 
-        set({ invitedBy: c, referralCodeEntered: true });
-        if (isSupabaseReady()) {
+        // One-time, irreversible: friend2 can never enter another code.
+        set({ invitedBy: inviter?.handle ?? c, referralCodeEntered: true });
+        if (isSupabaseReady() && inviter) {
           // Write the claim into FRIEND1's referrals rows (owner = their uid) so
-          // their client auto-credits +$0.49 on the next hydrate.
-          const owner = inviter?.handle ?? c;
-          const me = get().displayHandle || get().handle || "you";
+          // their client auto-credits +$0.49 on the next hydrate. The client_id is
+          // deterministic (inviter + me), so a retry can never double-credit.
+          const me = get().displayHandle || get().handle || currentUserId();
           queueWrite("referrals", {
-            client_id: `${currentUserId()}:${Date.now()}`,
-            owner,
+            client_id: `${inviter.handle}:${currentUserId()}`,
+            owner: inviter.handle,
             handle: me,
             at_label: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
           });
@@ -1587,9 +1592,10 @@ export const useApp = create<AppState>()(
         get().addToast({
           type: "success",
           title: "Referral code accepted",
-          description: inviter ? `You joined via @${inviter.handle} — thank them later!` : "Code saved — your inviter gets rewarded when the referral is verified.",
+          description: inviter ? `You joined via @${inviter.handle} — they just earned $0.49` : "Code saved — your inviter gets rewarded when the referral is verified.",
         });
         return { ok: true };
+
       },
 
       mergeReferralsFromDb: (list) => {
