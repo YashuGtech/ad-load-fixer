@@ -15,6 +15,7 @@ import { Route as CampaignsRouteImport } from './routes/campaigns'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PromoteRouteImport } from './routes/promote'
+import { Route as ApiNowpaymentsRouteImport } from './routes/api/nowpayments'
 import { Route as UsersHandleRouteImport } from './routes/users.$handle'
 
 const IndexRoute = IndexRouteImport.update({
@@ -47,6 +48,11 @@ const PromoteRoute = PromoteRouteImport.update({
   path: '/promote',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNowpaymentsRoute = ApiNowpaymentsRouteImport.update({
+  id: '/api/nowpayments',
+  path: '/api/nowpayments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UsersHandleRoute = UsersHandleRouteImport.update({
   id: '/users/$handle',
   path: '/users/$handle',
@@ -60,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
+  '/api/nowpayments': typeof ApiNowpaymentsRoute
   '/users/$handle': typeof UsersHandleRoute
 }
 export interface FileRoutesByTo {
@@ -69,6 +76,7 @@ export interface FileRoutesByTo {
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
+  '/api/nowpayments': typeof ApiNowpaymentsRoute
   '/users/$handle': typeof UsersHandleRoute
 }
 export interface FileRoutesById {
@@ -79,6 +87,7 @@ export interface FileRoutesById {
   '/leads': typeof LeadsRoute
   '/profile': typeof ProfileRoute
   '/promote': typeof PromoteRoute
+  '/api/nowpayments': typeof ApiNowpaymentsRoute
   '/users/$handle': typeof UsersHandleRoute
 }
 export interface FileRouteTypes {
@@ -90,6 +99,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/profile'
     | '/promote'
+    | '/api/nowpayments'
     | '/users/$handle'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/profile'
     | '/promote'
+    | '/api/nowpayments'
     | '/users/$handle'
   id:
     | '__root__'
@@ -108,6 +119,7 @@ export interface FileRouteTypes {
     | '/leads'
     | '/profile'
     | '/promote'
+    | '/api/nowpayments'
     | '/users/$handle'
   fileRoutesById: FileRoutesById
 }
@@ -118,6 +130,7 @@ export interface RootRouteChildren {
   LeadsRoute: typeof LeadsRoute
   ProfileRoute: typeof ProfileRoute
   PromoteRoute: typeof PromoteRoute
+  ApiNowpaymentsRoute: typeof ApiNowpaymentsRoute
   UsersHandleRoute: typeof UsersHandleRoute
 }
 
@@ -165,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PromoteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/nowpayments': {
+      id: '/api/nowpayments'
+      path: '/api/nowpayments'
+      fullPath: '/api/nowpayments'
+      preLoaderRoute: typeof ApiNowpaymentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/users/$handle': {
       id: '/users/$handle'
       path: '/users/$handle'
@@ -182,6 +202,7 @@ const rootRouteChildren: RootRouteChildren = {
   LeadsRoute: LeadsRoute,
   ProfileRoute: ProfileRoute,
   PromoteRoute: PromoteRoute,
+  ApiNowpaymentsRoute: ApiNowpaymentsRoute,
   UsersHandleRoute: UsersHandleRoute,
 }
 export const routeTree = rootRouteImport
