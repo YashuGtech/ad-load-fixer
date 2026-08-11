@@ -1853,8 +1853,13 @@ export const useApp = create<AppState>()(
         daily: s.daily,
         referralsEnabled: s.referralsEnabled,
         referralLocked: s.referralLocked,
+        // One-time referral entry — persisted so friend2 can never enter a
+        // second code after a reload.
+        referralCodeEntered: s.referralCodeEntered,
+        invitedBy: s.invitedBy,
         contactSaved: s.contactSaved,
         chats: s.chats,
+
       }),
     }
   )
