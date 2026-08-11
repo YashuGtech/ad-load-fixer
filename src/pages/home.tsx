@@ -8,6 +8,8 @@ import PlatformIcon from "@/components/platform-icon";
 import TaskModal from "@/components/task-modal";
 import AdEarnCard from "@/components/ad-earn-card";
 import BanBanner from "@/components/ban-banner";
+import ReferralBanner from "@/components/referral-banner";
+
 import FollowButton from "@/components/follow-button";
 import VerifiedTick from "@/components/verified-tick";
 import clsx from "clsx";
@@ -149,13 +151,17 @@ export default function EarnTasks() {
           </div>
 
           {/* Stats panel — platform growth numbers */}
-          <div className="grid grid-cols-3 lg:grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
             <Stat icon={<BadgeCheck className="w-4 h-4" />} label="Leads done" value="1k+" suffix="successful leads" tone="cyan" />
             <Stat icon={<Sparkles className="w-4 h-4" />} label="Posts published" value="397" suffix="campaigns" tone="violet" />
             <Stat icon={<Users className="w-4 h-4" />} label="USDT generated" value="$3,467" suffix="paid to earners" tone="emerald" />
           </div>
         </div>
       </div>
+
+      {/* Referral program banner */}
+      <ReferralBanner />
+
 
       {/* Feed interests — tag-based matching */}
       <div className="glass rounded-2xl border border-white/10 px-4 py-3">
@@ -466,14 +472,14 @@ function Stat({
     emerald: "from-emerald-500/20 to-transparent border-emerald-400/20",
   }[tone];
   return (
-    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br", toneBg)}>
+    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br min-w-0", toneBg)}>
       <div className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-        {icon} {label}
+        <span className="shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
       </div>
-      <div className="font-extrabold text-2xl tabular mt-1">
-        {value}
-        {suffix && <span className="text-sm text-gray-400 ml-1">{suffix}</span>}
-      </div>
+      <div className="font-extrabold text-xl lg:text-2xl tabular mt-1 leading-tight break-words">{value}</div>
+      {suffix && <div className="text-[11px] lg:text-xs text-gray-400 mt-0.5 leading-snug">{suffix}</div>}
     </div>
   );
+
 }
