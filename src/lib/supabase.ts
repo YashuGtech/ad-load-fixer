@@ -31,7 +31,10 @@ import type {
 } from "./types";
 
 const URL = import.meta.env.VITE_SUPABASE_URL || "";
-const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 
 let client: SupabaseClient | null = null;
 let adminSecret: string | null = null; // set after the admin panel unlocks
