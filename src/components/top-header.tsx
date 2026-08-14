@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Link from "@/lib/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck, Zap } from "lucide-react";
+import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { reasonLabel } from "@/lib/security";
 import UserAvatar from "@/components/user-avatar";
