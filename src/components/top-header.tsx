@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Link from "@/lib/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck, Zap } from "lucide-react";
+import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { reasonLabel } from "@/lib/security";
 import UserAvatar from "@/components/user-avatar";
@@ -18,7 +18,7 @@ const TIER_GRADIENT = {
 } as const;
 
 export default function TopHeader() {
-  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle, pageCredits } = useApp();
+  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle } = useApp();
   const [deposit, setDeposit] = useState(false);
   const restricted = security.status === "restricted";
 
@@ -41,20 +41,6 @@ export default function TopHeader() {
         </div>
 
         <div className="flex items-center gap-2 lg:gap-3">
-          {/* Page credits — earned by watching rewarded ads on Earn, spent to open pages */}
-          <Link
-            href="/"
-            title="Page credits — watch ads on Earn to earn more"
-            className="flex items-center gap-2 px-3 py-2 rounded-xl glass border border-amber-400/20 hover:border-amber-400/40 transition-all"
-          >
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-[0_0_12px_#F59E0B]">
-              <Zap className="w-3.5 h-3.5 text-white" />
-            </div>
-            <div className="leading-tight">
-              <div className="text-[10px] uppercase tracking-widest text-gray-500">Credits</div>
-              <div className="font-bold tabular text-base">{pageCredits}</div>
-            </div>
-          </Link>
 
           {/* Live USDT widget */}
           <div className="relative">
