@@ -225,7 +225,7 @@ export const FREE_LIMITS = { postsPerDay: 2, leadsPerPostPerDay: 20 };
 
 /** Welcome balance of page credits — enough to explore, few enough that the
  *  watch-ad loop kicks in fast. Earned by watching rewarded interstitials. */
-export const PAGE_CREDITS_START = 3;
+export const PAGE_CREDITS_START = 4;
 
 /**
  * Plan-based daily limits:

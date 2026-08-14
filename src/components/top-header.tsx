@@ -18,7 +18,7 @@ const TIER_GRADIENT = {
 } as const;
 
 export default function TopHeader() {
-  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle, pageCredits } = useApp();
+  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle } = useApp();
   const [deposit, setDeposit] = useState(false);
   const restricted = security.status === "restricted";
 
