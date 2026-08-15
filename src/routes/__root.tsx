@@ -20,6 +20,7 @@ import SecurityGuard from "@/components/security-guard";
 import AdminRedirect from "@/components/admin-redirect";
 import MonetagAdManager from "@/components/monetag-ad-manager";
 import PageGate from "@/components/page-gate";
+import AccountGate from "@/components/account-gate";
 
 function NotFoundComponent() {
   return (
@@ -126,6 +127,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AccountGate>
       {/* Decorative twinkles */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="twinkle" style={{ top: "12%", left: "8%" }} />
@@ -155,6 +157,7 @@ function RootComponent() {
       <AdminRedirect />
       {/* Monetag: rewarded interstitials only — no auto in-app ads. */}
       <MonetagAdManager />
+      </AccountGate>
     </QueryClientProvider>
   );
 }

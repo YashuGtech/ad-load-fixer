@@ -247,6 +247,12 @@ export async function showRewardedAd(opts?: MonetagOptions): Promise<boolean> {
   };
 
   if (typeof window === "undefined") return false;
+  // Premium users never see ads anywhere in the app.
+  try {
+    if (useApp.getState().isPremium) return false;
+  } catch {
+    /* store not mounted (SSR / tests) */
+  }
   // Only guard against two ads playing at literally the same time.
   if (adInFlight) return false;
 
