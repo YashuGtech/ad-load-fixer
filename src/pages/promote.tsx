@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Rocket, Coins, Gift, CheckCircle2, ArrowRight, Crown, Megaphone, Hash, X, Zap, Wallet, CreditCard } from "lucide-react";
+import { Rocket, Coins, Gift, CheckCircle2, ArrowRight, Crown, Clock, Megaphone, Hash, X, Zap, Wallet, CreditCard } from "lucide-react";
 import { PLATFORMS, TASK_ACTIONS, PREMIUM_PLANS, PLATFORM_META, SUGGESTED_TAGS } from "@/lib/mock-data";
 import { useApp, planLimits } from "@/lib/store";
 import { showMonetagInterstitial, showPageInterstitial } from "@/lib/monetag";
@@ -36,8 +36,8 @@ export default function Promote() {
 
   // In-app interstitial when the user opens the Promote page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!isPremium) void showPageInterstitial();
+  }, [isPremium]);
 
   const budget = Math.round(reward * quantity * 100) / 100;
   // Paid campaigns can't be published without enough balance — block the button.
@@ -63,7 +63,7 @@ export default function Promote() {
     // (graceful degradation — never blocks publishing).
     setPublishing(true);
     try {
-      await showMonetagInterstitial();
+      if (!isPremium) await showMonetagInterstitial();
     } finally {
       setPublishing(false);
     }
@@ -106,7 +106,7 @@ export default function Promote() {
               Launch an <span className="gradient-text">Ad Campaign</span> in seconds
             </h1>
             <p className="mt-3 text-gray-400 max-w-lg">
-              Pay with escrowed USDT or use a <span className="text-amber-300 font-semibold">referral exchange</span> —
+              Pay per approved lead with USDT, or use a <span className="text-amber-300 font-semibold">referral exchange</span> —
               get real people to follow, join and engage with your brand.
             </p>
           </div>
@@ -143,6 +143,27 @@ export default function Promote() {
           Hitting the cap pauses the ad for 1 week
         </span>
       </div>
+
+      {/* Free-plan upsell: posts auto-delete after 9h — Premium keeps them forever */}
+      {!isPremium && (
+        <div className="rounded-2xl border border-amber-400/25 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <Clock className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+            <div className="text-xs text-gray-300 leading-relaxed">
+              <span className="font-bold text-amber-300">Free posts auto-delete after 9h.</span>{" "}
+              Go <span className="font-bold text-violet-300">Premium</span> to keep your posts{" "}
+              <span className="font-bold text-white">permanently</span> — no more 9h auto-deletion, plus up to
+              100 posts/day, 100 leads per post/day and priority approvals.
+            </div>
+          </div>
+          <button
+            onClick={() => setPremiumPay("week")}
+            className="shrink-0 px-4 py-2 rounded-xl bg-gradient-to-r from-brand-cyan to-brand-violet text-white text-xs font-bold hover:opacity-90 transition-all inline-flex items-center gap-1.5"
+          >
+            <Crown className="w-3.5 h-3.5" /> Get Premium — permanent posts
+          </button>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-6 items-start">
         {/* Publish form */}

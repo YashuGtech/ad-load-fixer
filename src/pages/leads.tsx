@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   Send,
   Flag,
+  ShieldAlert,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { getUser } from "@/lib/mock-data";
@@ -96,12 +97,16 @@ function ReferralReveal({ link, note }: { link: string; note?: string }) {
 }
 
 export default function Leads() {
-  const { submissions, approveSubmission, rejectSubmission, rateSubmission, addToast, isPremium, handle } = useApp();
+  const { submissions, approveSubmission, rejectSubmission, rateSubmission, addToast, isPremium, handle, refreshSubmissions } = useApp();
 
   // In-app interstitial when the user opens the Leads page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!isPremium) void showPageInterstitial();
+    // Pull the latest submissions from the DB so new claims reach the
+    // publisher immediately and approved payouts land in the wallet
+    // (bypasses the 15-min marketplace cache).
+    void refreshSubmissions();
+  }, [refreshSubmissions]);
   const [tab, setTab] = useState<"incoming" | "outgoing">("incoming");
   const [rejecting, setRejecting] = useState<Submission | null>(null);
   const [reason, setReason] = useState("");
@@ -128,6 +133,24 @@ export default function Leads() {
 
   return (
     <div className="space-y-6 max-w-[1100px] mx-auto">
+      {/* Stay-in-app safety warning — the app is not responsible for losses outside */}
+      <div className="rounded-2xl border border-rose-400/25 bg-gradient-to-br from-rose-500/10 via-transparent to-transparent p-4 flex items-start gap-3">
+        <ShieldAlert className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
+        <div className="text-xs text-gray-300 leading-relaxed">
+          <span className="font-bold text-rose-300">Stay inside the app.</span> Never move chats to Telegram / WhatsApp
+          to discuss a deal — PromoPulse is <span className="font-bold text-white">not responsible</span> for any loss
+          outside the app.{" "}
+          {!isPremium && (
+            <a
+              href="/profile"
+              className="font-bold text-violet-300 underline decoration-violet-400/40 underline-offset-2 hover:text-violet-200"
+            >
+              Go Premium for secure in-app chat
+            </a>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <div className="relative overflow-hidden rounded-3xl glass-strong border border-white/10 p-6 lg:p-8 bg-grid">
         <div className="absolute inset-0 bg-gradient-to-br from-amber-400/10 via-transparent to-brand-cyan/10 pointer-events-none" />
@@ -167,7 +190,7 @@ export default function Leads() {
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
               <span className="text-gray-300">
                 <span className="font-bold text-amber-300">{pendingIncoming}</span> claim{pendingIncoming === 1 ? "" : "s"} waiting
-                — approve to pay out from escrow and rate the user.
+                — approve to pay out from your balance and rate the user.
               </span>
             </div>
           )}
@@ -213,7 +236,7 @@ export default function Leads() {
                             return;
                           }
                           // Monetag interstitial on "check" — then the rating dialog opens.
-                          void showMonetagInterstitial().then(() => openRate(s, s.handle, s.name, "user"));
+                          void (isPremium ? Promise.resolve() : showMonetagInterstitial()).then(() => openRate(s, s.handle, s.name, "user"));
                         }}
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-400/25 text-emerald-300 text-xs font-bold hover:bg-emerald-500/25 transition-all"
                       >
@@ -250,12 +273,15 @@ export default function Leads() {
                     )
                   )}
                   <ContactButton handle={s.handle} adId={s.postId ?? s.id} />
-                  <button
-                    onClick={() => setReport({ handle: s.handle, name: s.name })}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-400/20 text-rose-300 text-xs font-bold hover:bg-rose-500/20 transition-all"
-                  >
-                    <Flag className="w-3.5 h-3.5" /> Report
-                  </button>
+                  {/* Once rated, the claim is closed — reporting is no longer available. */}
+                  {!s.rated && (
+                    <button
+                      onClick={() => setReport({ handle: s.handle, name: s.name })}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-400/20 text-rose-300 text-xs font-bold hover:bg-rose-500/20 transition-all"
+                    >
+                      <Flag className="w-3.5 h-3.5" /> Report
+                    </button>
+                  )}
                   {isPremium && (
                     <button
                       onClick={() => setChatThread({ id: s.id, peer: s.handle })}
@@ -339,12 +365,15 @@ export default function Leads() {
                     )
                   )}
                   <ContactButton handle={s.posterHandle ?? s.poster} adId={s.postId ?? s.id} />
-                  <button
-                    onClick={() => setReport({ handle: s.posterHandle ?? s.poster, name: s.poster })}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-400/20 text-rose-300 text-xs font-bold hover:bg-rose-500/20 transition-all"
-                  >
-                    <Flag className="w-3.5 h-3.5" /> Report
-                  </button>
+                  {/* Once rated, the claim is closed — reporting is no longer available. */}
+                  {!s.rated && (
+                    <button
+                      onClick={() => setReport({ handle: s.posterHandle ?? s.poster, name: s.poster })}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-400/20 text-rose-300 text-xs font-bold hover:bg-rose-500/20 transition-all"
+                    >
+                      <Flag className="w-3.5 h-3.5" /> Report
+                    </button>
+                  )}
                   {isPremium && (
                     <button
                       onClick={() => setChatThread({ id: s.id, peer: s.posterHandle ?? s.poster })}

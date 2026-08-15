@@ -6,9 +6,9 @@ import { useApp } from "@/lib/store";
 import { showMonetagInterstitial, showPageInterstitial } from "@/lib/monetag";
 import PlatformIcon from "@/components/platform-icon";
 import TaskModal from "@/components/task-modal";
+import AdEarnCard from "@/components/ad-earn-card";
 import BanBanner from "@/components/ban-banner";
 import ReferralBanner from "@/components/referral-banner";
-
 import FollowButton from "@/components/follow-button";
 import VerifiedTick from "@/components/verified-tick";
 import clsx from "clsx";
@@ -43,6 +43,7 @@ export default function EarnTasks() {
   const storeTasks = useApp((s) => s.tasks);
   const submissions = useApp((s) => s.submissions);
   const myHandle = useApp((s) => s.handle);
+  const isPremium = useApp((s) => s.isPremium);
   const liked = useApp((s) => s.liked);
   const toggleLike = useApp((s) => s.toggleLike);
   const boostTask = useApp((s) => s.boostTask);
@@ -55,8 +56,8 @@ export default function EarnTasks() {
 
   // Rewarded interstitial when the user opens the Earn page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!isPremium) void showPageInterstitial();
+  }, [isPremium]);
 
   const tasks = useMemo(() => {
     let list = storeTasks.slice();
@@ -109,7 +110,7 @@ export default function EarnTasks() {
     if (startingId) return; // an ad is already playing for another task
     setStartingId(t.id);
     try {
-      await showMonetagInterstitial();
+      if (!isPremium) await showMonetagInterstitial();
     } finally {
       setStartingId(null);
     }
@@ -140,7 +141,7 @@ export default function EarnTasks() {
             </h1>
             <p className="mt-3 text-gray-400 max-w-2xl">
               Complete social tasks — follow, join, retweet, like — and get
-              escrowed USDT sent straight to your wallet. Every claim goes
+              USDT paid to your wallet after the publisher approves. Every claim goes
               through reviewer approval with screenshot proof.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -150,7 +151,7 @@ export default function EarnTasks() {
           </div>
 
           {/* Stats panel — platform growth numbers */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
+          <div className="grid grid-cols-3 lg:grid-cols-1 gap-3">
             <Stat icon={<BadgeCheck className="w-4 h-4" />} label="Leads done" value="1k+" suffix="successful leads" tone="cyan" />
             <Stat icon={<Sparkles className="w-4 h-4" />} label="Posts published" value="397" suffix="campaigns" tone="violet" />
             <Stat icon={<Users className="w-4 h-4" />} label="USDT generated" value="$3,467" suffix="paid to earners" tone="emerald" />
@@ -160,7 +161,6 @@ export default function EarnTasks() {
 
       {/* Referral program banner */}
       <ReferralBanner />
-
 
       {/* Feed interests — tag-based matching */}
       <div className="glass rounded-2xl border border-white/10 px-4 py-3">
@@ -212,6 +212,7 @@ export default function EarnTasks() {
       </div>
 
       {/* Watch a rewarded ad → +1 page credit (gated pages cost 1 credit each) */}
+      <AdEarnCard />
 
       {/* Filters */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -470,14 +471,14 @@ function Stat({
     emerald: "from-emerald-500/20 to-transparent border-emerald-400/20",
   }[tone];
   return (
-    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br min-w-0", toneBg)}>
+    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br", toneBg)}>
       <div className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-        <span className="shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
+        {icon} {label}
       </div>
-      <div className="font-extrabold text-xl lg:text-2xl tabular mt-1 leading-tight break-words">{value}</div>
-      {suffix && <div className="text-[11px] lg:text-xs text-gray-400 mt-0.5 leading-snug">{suffix}</div>}
+      <div className="font-extrabold text-2xl tabular mt-1">
+        {value}
+        {suffix && <span className="text-sm text-gray-400 ml-1">{suffix}</span>}
+      </div>
     </div>
   );
-
 }
