@@ -266,6 +266,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          email: string | null
           five_star_gives: number
           followers: number
           following: number
@@ -275,6 +276,8 @@ export type Database = {
           is_premium: boolean
           is_you: boolean
           name: string
+          premium_expiry: string | null
+          premium_plan_id: string | null
           rating: number
           rating_count: number
           referrals_locked: boolean
@@ -286,6 +289,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          email?: string | null
           five_star_gives?: number
           followers?: number
           following?: number
@@ -295,6 +299,8 @@ export type Database = {
           is_premium?: boolean
           is_you?: boolean
           name: string
+          premium_expiry?: string | null
+          premium_plan_id?: string | null
           rating?: number
           rating_count?: number
           referrals_locked?: boolean
@@ -306,6 +312,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          email?: string | null
           five_star_gives?: number
           followers?: number
           following?: number
@@ -315,6 +322,8 @@ export type Database = {
           is_premium?: boolean
           is_you?: boolean
           name?: string
+          premium_expiry?: string | null
+          premium_plan_id?: string | null
           rating?: number
           rating_count?: number
           referrals_locked?: boolean
