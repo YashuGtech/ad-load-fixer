@@ -31,14 +31,111 @@ import type {
 } from "./types";
 
 const URL = import.meta.env.VITE_SUPABASE_URL || "";
-const KEY =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  "";
+const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
 let client: SupabaseClient | null = null;
 let adminSecret: string | null = null; // set after the admin panel unlocks
 let clientAuth = ""; // signature of the auth state the current client was built with
+
+const EMAIL_USER_KEY = "pp-email-user-v1";
+export interface EmailUserInfo {
+  id: string;
+  email: string;
+  name?: string;
+}
+
+function readEmailUser(): EmailUserInfo | null {
+  try {
+    const raw = localStorage.getItem(EMAIL_USER_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    if (value && typeof value.id === "string" && typeof value.email === "string") return value;
+  } catch {
+    /* ignore unavailable storage */
+  }
+  return null;
+}
+
+export function emailUserInfo(): EmailUserInfo | null {
+  return readEmailUser();
+}
+
+function setEmailUser(info: EmailUserInfo | null): void {
+  try {
+    if (info) localStorage.setItem(EMAIL_USER_KEY, JSON.stringify(info));
+    else localStorage.removeItem(EMAIL_USER_KEY);
+  } catch {
+    /* ignore unavailable storage */
+  }
+  client = null;
+  clientAuth = "";
+}
+
+export function isTelegramWebApp(): boolean {
+  try {
+    return !!(window as any).Telegram?.WebApp?.initData;
+  } catch {
+    return false;
+  }
+}
+
+export async function restoreEmailSession(): Promise<EmailUserInfo | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb.auth.getUser();
+    if (error || !data.user?.id || !data.user.email) {
+      setEmailUser(null);
+      return null;
+    }
+    const info = { id: data.user.id, email: data.user.email, name: data.user.user_metadata?.name };
+    setEmailUser(info);
+    return info;
+  } catch {
+    setEmailUser(null);
+    return null;
+  }
+}
+
+export async function signUpWithEmail(email: string, password: string, name: string): Promise<{
+  user: EmailUserInfo | null;
+  needsEmailConfirmation: boolean;
+  error?: string;
+}> {
+  const sb = getSupabase();
+  if (!sb) return { user: null, needsEmailConfirmation: false, error: "Account service is not configured." };
+  const { data, error } = await sb.auth.signUp({
+    email: email.trim().toLowerCase(),
+    password,
+    options: { data: { name: name.trim() || undefined } },
+  });
+  if (error || !data.user?.id || !data.user.email) return { user: null, needsEmailConfirmation: false, error: error?.message || "Could not create account." };
+  const user = { id: data.user.id, email: data.user.email, name: name.trim() || undefined };
+  setEmailUser(user);
+  return { user, needsEmailConfirmation: !data.session, };
+}
+
+export async function signInWithEmail(email: string, password: string): Promise<{ user: EmailUserInfo | null; error?: string }> {
+  const sb = getSupabase();
+  if (!sb) return { user: null, error: "Account service is not configured." };
+  const { data, error } = await sb.auth.signInWithPassword({
+    email: email.trim().toLowerCase(),
+    password,
+  });
+  if (error || !data.user?.id || !data.user.email) return { user: null, error: error?.message || "Could not sign in." };
+  const user = { id: data.user.id, email: data.user.email, name: data.user.user_metadata?.name };
+  setEmailUser(user);
+  return { user };
+}
+
+export async function signOutEmail(): Promise<void> {
+  const sb = getSupabase();
+  try {
+    await sb?.auth.signOut();
+  } finally {
+    setEmailUser(null);
+  }
+}
 
 export function isSupabaseReady(): boolean {
   return !!(URL && KEY && !/your-|REPLACE|placeholder/i.test(KEY));
@@ -46,7 +143,7 @@ export function isSupabaseReady(): boolean {
 
 /**
  * The RLS policies (migration 0005) read two request headers:
- *   x-app-user  = currentUserId()   — identity key (tg-<id> or "you")
+ *   x-app-user  = currentUserId()   — identity key (tg-<id>, email-<uuid>, or "you")
  *   x-app-admin = admin passcode    — only present after the panel unlocks
  * We rebuild the client whenever either changes so every request carries them.
  */
@@ -61,7 +158,7 @@ export function getSupabase(): SupabaseClient | null {
   const authSig = `${uid}|${adminSecret ?? ""}`;
   if (!client || clientAuth !== authSig) {
     client = createClient(URL, KEY, {
-      auth: { persistSession: false },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
       global: {
         headers: {
           "X-Client-Info": "promopulse-web",
@@ -138,10 +235,12 @@ export function tgUserInfo(): { id: number; name: string; username?: string } | 
   return null;
 }
 
-/** Identity key: Telegram user id when inside the mini app, else "you". */
+/** Identity key: Telegram id, email auth id, or the offline demo identity. */
 export function currentUserId(): string {
   const info = tgUserInfo();
   if (info) return `tg-${info.id}`;
+  const email = readEmailUser();
+  if (email) return `email-${email.id}`;
   return "you";
 }
 
@@ -265,10 +364,11 @@ export async function flushWrites(): Promise<void> {
     const rows = Array.from(q.rows.values());
     if (rows.length === 0) continue;
     try {
-      await sb.from(table).upsert(rows, { onConflict: q.conflict });
+      const { error } = await sb.from(table).upsert(rows, { onConflict: q.conflict });
+      if (error) console.warn(`[promopulse] supabase upsert failed (${table})`, error);
     } catch (e) {
-      // Transient network failure — drop rather than spam retries, but log it
-      // so a silently lost write (e.g. a transaction row) is never invisible.
+      // Network failure — log it so a silently lost write (e.g. a transaction
+      // row or premium flag) is never invisible.
       console.warn(`[promopulse] supabase upsert failed (${table})`, e);
     }
   }
@@ -277,7 +377,8 @@ export async function flushWrites(): Promise<void> {
   for (const [table, rows] of insSnapshot) {
     if (rows.length === 0) continue;
     try {
-      await sb.from(table).insert(rows);
+      const { error } = await sb.from(table).insert(rows);
+      if (error) console.warn(`[promopulse] supabase insert failed (${table})`, error);
     } catch (e) {
       console.warn(`[promopulse] supabase insert failed (${table})`, e);
     }
@@ -288,7 +389,8 @@ export async function flushWrites(): Promise<void> {
   for (const [table, ids] of dels) {
     for (const id of Array.from(ids)) {
       try {
-        await sb.from(table).delete().eq("client_id", id);
+        const { error } = await sb.from(table).delete().eq("client_id", id);
+        if (error) console.warn(`[promopulse] supabase delete failed (${table})`, error);
       } catch (e) {
         console.warn(`[promopulse] supabase delete failed (${table})`, e);
       }
@@ -299,7 +401,8 @@ export async function flushWrites(): Promise<void> {
   for (const [table, clauses] of delWheres) {
     for (const { column, value } of clauses) {
       try {
-        await sb.from(table).delete().eq(column, value);
+        const { error } = await sb.from(table).delete().eq(column, value);
+        if (error) console.warn(`[promopulse] supabase delete-where failed (${table}.${column})`, error);
       } catch (e) {
         console.warn(`[promopulse] supabase delete-where failed (${table}.${column})`, e);
       }
@@ -495,6 +598,10 @@ export function submissionToRow(s: Submission): Record<string, unknown> {
     // NOTE: no post_id / task_id — the DB submissions table has no such
     // columns, and sending an unknown column made the whole upsert fail with
     // PGRST204 (submissions silently never reached the publisher).
+    // `credited` is persisted ONLY when true — the publisher's copy of a row
+    // (which doesn't know the claimer's payout flag) must never overwrite it,
+    // or the claimer could be paid twice on the next sync.
+    ...(s.credited ? { credited: true } : {}),
   };
 }
 
@@ -518,6 +625,7 @@ export function rowToSubmission(r: any): Submission {
     link: r.link ?? undefined,
     note: r.note ?? undefined,
     mode: r.mode,
+    credited: r.credited ?? false,
   };
 }
 
@@ -671,17 +779,24 @@ export function rowToReviewRequest(r: any): ReviewRequest {
 
 export function profileToRow(s: any, handle: string): Record<string, unknown> {
   const info = tgUserInfo();
+  const email = readEmailUser();
   return {
     handle,
+    email: email?.email ?? null,
     // The user's REAL Telegram username (profiles.tg) — powers the t.me
     // proof/contact links. Never a tg-<id> fallback (not a username).
     tg: info?.username ?? null,
     name: s.username || handle,
     tier: s.tier ?? "Silver",
     is_premium: s.isPremium ?? false,
+    premium_plan_id: s.premiumPlanId ?? null,
+    premium_expiry: iso(s.premiumExpiry),
     rating: s.rating ?? 4.5,
     rating_count: s.ratingCount ?? 0,
     success_rate: s.successRate ?? 90,
+    // Loyal rater counters — synced on every rating (migration 0009).
+    five_star_gives: s.loyaltyGives?.five ?? 0,
+    four_star_gives: s.loyaltyGives?.four ?? 0,
     followers: s.followers ?? 0,
     following: s.following ?? 0,
     tasks_done: s.tasksDone ?? 0,
@@ -830,6 +945,20 @@ export async function fetchMarketplace(): Promise<{
   };
 }
 
+/**
+ * Fresh (cache-bypassing) read of the submissions the current user
+ * participates in (RLS returns exactly the claimer + ad-owner rows). Used when
+ * the user opens Campaigns/Leads so new claims reach the publisher immediately
+ * instead of waiting out the 15-minute marketplace cache.
+ */
+export async function fetchMySubmissionsFresh(): Promise<Submission[] | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb.from("submissions").select("*").limit(500);
+  if (error) return null;
+  return (data ?? []).map(rowToSubmission);
+}
+
 /** One-shot cached read of everything owned by the current user. */
 export async function fetchUserData(): Promise<{
   profile: any;
@@ -840,33 +969,46 @@ export async function fetchUserData(): Promise<{
   referrals: Referral[];
   userRatings: Record<string, { rating: number; count: number }>;
   bans: Ban[];
+  /** True when the bans table actually answered — used to decide whether DB bans replace local state. */
+  bansOk: boolean;
   reviewRequests: ReviewRequest[];
 } | null> {
   const sb = getSupabase();
   if (!sb) return null;
   const uid = currentUserId();
-  const [p, tx, nt, dp, wd, rf, rt, bn, rv] = await Promise.all([
+  const [p, tx, nt, dp, wd, rf, rt, rv] = await Promise.all([
     safeRead(sb.from("profiles").select("*").eq("handle", uid).maybeSingle()),
-    safeRead(sb.from("transactions").select("*").eq("owner", uid).limit(200)),
+    safeRead(sb.from("transactions").select("*").eq("owner", uid).limit(1000)),
     safeRead(sb.from("notifications").select("*").eq("owner", uid).limit(100)),
     safeRead(sb.from("deposits").select("*").eq("owner", uid).limit(100)),
     safeRead(sb.from("withdrawals").select("*").eq("owner", uid).limit(100)),
     safeRead(sb.from("referrals").select("*").eq("owner", uid).limit(100)),
     safeRead(sb.from("user_ratings").select("*").limit(500)),
-    safeRead(sb.from("bans").select("*").limit(200)),
     safeRead(sb.from("review_requests").select("*").eq("handle", uid).limit(50)),
   ]);
+  // Bans read separately so a failed read can't masquerade as "no bans" (which
+  // would clear a real ban from local state on hydrate). `bansOk` tells the
+  // store whether the DB actually answered.
+  let bnData: any[] = [];
+  let bansOk = false;
+  try {
+    const bnr = await sb.from("bans").select("*").limit(200);
+    bnData = bnr.data ?? [];
+    bansOk = !bnr.error;
+  } catch {
+    /* keep bansOk=false — keep local bans */
+  }
   const userRatings: Record<string, { rating: number; count: number }> = {};
   (rt.data ?? []).forEach((r: any) => {
     userRatings[r.handle] = { rating: Number(r.rating), count: r.count };
   });
-  const bans: Ban[] = (bn.data ?? [])
+  const bans: Ban[] = bnData
     .map((r: any) => ({
       handle: r.handle,
       until: Date.parse(r.until) || 0,
       reason: r.reason ?? "Banned",
     }))
-    .filter((b: { until: number }) => b.until > Date.now());
+    .filter((b) => b.until > Date.now());
   return {
     // maybeSingle may be replaced by an empty array when the read was saved;
     // normalise so a missing profile is null, never [] or an error artifact.
@@ -878,8 +1020,32 @@ export async function fetchUserData(): Promise<{
     referrals: (rf.data ?? []).map(rowToReferral),
     userRatings,
     bans,
+    bansOk,
     reviewRequests: (rv.data ?? []).map(rowToReviewRequest),
   };
+}
+
+/** Fresh bans read with its own short-TTL cache so admin unbans / ban
+ *  expiry propagate to the banned user within ~1 minute instead of waiting
+ *  out the 15-minute user-data cache. `bansOk` is false when the DB didn't
+ *  answer, so callers keep their current local state. */
+export async function fetchBans(): Promise<{ bans: Ban[]; bansOk: boolean }> {
+  const sb = getSupabase();
+  if (!sb) return { bans: [], bansOk: false };
+  try {
+    const bnr = await sb.from("bans").select("*").limit(200);
+    if (bnr.error) return { bans: [], bansOk: false };
+    const bans: Ban[] = (bnr.data ?? [])
+      .map((r: any) => ({
+        handle: r.handle,
+        until: Date.parse(r.until) || 0,
+        reason: r.reason ?? "Banned",
+      }))
+      .filter((b) => b.until > Date.now());
+    return { bans, bansOk: true };
+  } catch {
+    return { bans: [], bansOk: false };
+  }
 }
 
 /** Resolve a referral code (username or tg-<id>) to the inviter's profile row. */
@@ -894,6 +1060,58 @@ export async function findUserByCode(code: string): Promise<{ handle: string; tg
   if (error || !data || !data.length) return null;
   const p = data[0];
   return { handle: p.handle, tg: p.tg ?? null, name: p.name ?? p.handle };
+}
+
+/**
+ * Server verdict for a user report — returned by the `moderate_report` edge
+ * function. It records the report, counts recent reports for the target and
+ * applies the plan-based auto-ban (free: 2/hour → 7 days, premium:
+ * 10/hour → 72h) to the shared `bans` table, so the ban is enforced globally.
+ */
+export interface ReportVerdict {
+  ok: boolean;
+  count: number;
+  threshold: number;
+  banned: boolean;
+  durationLabel: string | null;
+  until: string | null;
+  premium: boolean;
+  alreadyBanned: boolean;
+  /** True when the ban escalated to a PERMANENT ban (repeat offender). */
+  permanent?: boolean;
+  error?: string;
+}
+
+/**
+ * File a report through the `moderate_report` edge function. The server is the
+ * source of truth for the report count (every device's reports count), and it
+ * applies the ban itself — a normal client can't write to `bans` (admin-only
+ * RLS), which is exactly why this runs server-side.
+ */
+export async function submitReport(target: string, reason: string): Promise<ReportVerdict> {
+  const base = import.meta.env.VITE_SUPABASE_URL;
+  if (!base || !/^https?:\/\//.test(base)) throw new Error("Supabase is not configured");
+  // The edge-function gateway requires a JWT (verify_jwt is on), so pass the
+  // anon key exactly like the Supabase client does — otherwise every call is
+  // rejected with 401 UNAUTHORIZED_NO_AUTH_HEADER.
+  const res = await fetch(`${base.replace(/\/$/, "")}/functions/v1/moderate_report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: KEY,
+      Authorization: `Bearer ${KEY}`,
+      "x-app-user": currentUserId(),
+    },
+    body: JSON.stringify({ target, reason }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!data || data.ok !== true) {
+    // 404 / NOT_FOUND = the function was never deployed — the caller falls
+    // back to local (device-only) moderation instead of failing the report.
+    if (res.status === 404 || data?.code === "NOT_FOUND") throw new Error("moderate_report is not deployed");
+    throw new Error(data?.error || "Report failed");
+  }
+  return data as ReportVerdict;
 }
 
 export const MARKETPLACE_CACHE_KEY = "mkt:v1";
@@ -952,6 +1170,8 @@ export async function fetchProfiles(): Promise<UserProfile[] | null> {
     rating: Number(r.rating ?? 0),
     ratingCount: r.rating_count ?? 0,
     successRate: r.success_rate ?? 0,
+    fiveStarGives: r.five_star_gives ?? 0,
+    fourStarGives: r.four_star_gives ?? 0,
     followers: r.followers ?? 0,
     following: r.following ?? 0,
     tasksDone: r.tasks_done ?? 0,

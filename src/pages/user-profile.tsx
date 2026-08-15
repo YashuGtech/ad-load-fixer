@@ -15,15 +15,15 @@ import clsx from "clsx";
 
 export default function UserPage({ handle }: { handle: string }) {
   const profile = getUser(handle);
-  const { submissions, tasks, following, isPremiumUser, isBanned, handle: myHandle } = useApp();
+  const { submissions, tasks, following, isPremiumUser, isBanned, handle: myHandle, isPremium: viewerIsPremium } = useApp();
   const isYou = handle === myHandle;
   const [tab, setTab] = useState<"submissions" | "ads">("submissions");
   const [report, setReport] = useState(false);
 
   // Rewarded interstitial when the user opens a profile page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!viewerIsPremium) void showPageInterstitial();
+  }, [viewerIsPremium]);
 
   const userSubs = submissions.filter((s) => s.handle === handle);
   const userAds = tasks.filter((t) => t.posterHandle === handle);

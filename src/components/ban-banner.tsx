@@ -1,6 +1,7 @@
 import { Ban, ShieldAlert, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useApp } from "@/lib/store";
+import { isPermanentBan } from "@/lib/ban";
 
 /**
  * Suspension banner. Banned users can appeal ("request a review") — the appeal
@@ -16,6 +17,7 @@ export default function BanBanner() {
 
   if (!ban) return null;
 
+  const permanent = isPermanentBan(ban.until);
   const ms = Math.max(0, ban.until - Date.now());
   const days = Math.floor(ms / 86_400_000);
   const hours = Math.floor((ms % 86_400_000) / 3_600_000);
@@ -44,13 +46,22 @@ export default function BanBanner() {
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-bold text-rose-200 flex items-center gap-2">
-          Account suspended <ShieldAlert className="w-4 h-4" />
+          {permanent ? "Account permanently banned" : "Account suspended"} <ShieldAlert className="w-4 h-4" />
         </div>
         <p className="text-sm text-rose-200/70 mt-1 leading-relaxed">
-          You received too many reports within one hour. Suspension active for{" "}
-          <span className="font-bold text-rose-200">{remaining}</span>. Reason: {ban.reason}.
+          {permanent ? (
+            <>Your account is permanently banned for repeated misbehavior. Reason: {ban.reason}.</>
+          ) : (
+            <>
+              Your account is suspended for{" "}
+              <span className="font-bold text-rose-200">{remaining}</span>. Reason: {ban.reason}.
+            </>
+          )}
         </p>
-        <p className="text-[11px] text-rose-200/50 mt-1">Publishing and claiming are disabled while banned.</p>
+        <p className="text-[11px] text-rose-200/50 mt-1">
+          You can still browse the marketplace, but publishing, claiming and wallet actions are
+          disabled until the suspension ends or an appeal is approved.
+        </p>
 
         {myApproved ? (
           <div className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-400/25 rounded-lg px-3 py-2">

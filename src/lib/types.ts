@@ -54,7 +54,7 @@ export interface Task {
   tags?: string[];
   /** When set (future timestamp), the ad is auto-disabled until then (daily lead cap hit). */
   disabledUntil?: number;
-  /** Client-side creation time (ms) — free users' posts are removed after 24h. */
+  /** Client-side creation time (ms) — free users' posts are removed after 9h. */
   createdAt?: number;
   /** Banned by admin — hidden from feeds. */
   banned?: boolean;
@@ -91,7 +91,7 @@ export interface Campaign {
   tags?: string[];
   /** When set (future timestamp), the ad is auto-disabled until then (daily lead cap hit). */
   disabledUntil?: number;
-  /** Client-side creation time (ms) — free users' posts are removed after 24h. */
+  /** Client-side creation time (ms) — free users' posts are removed after 9h. */
   createdAt?: number;
   /** Banned by admin — hidden from feeds. */
   banned?: boolean;
@@ -107,6 +107,10 @@ export interface UserProfile {
   rating: number;
   ratingCount: number;
   successRate: number; // % of followers retained
+  /** 5★ ratings this user has GIVEN — each adds +1% to their loyalty rate (loyal rater). */
+  fiveStarGives?: number;
+  /** 4★ ratings this user has GIVEN — each adds +0.5% to their loyalty rate. */
+  fourStarGives?: number;
   followers: number;
   following: number;
   tasksDone: number;
@@ -129,6 +133,10 @@ export interface Submission {
   poster: string;
   posterHandle: string;
   rated?: boolean; // set when either party has been rated after the claim was marked done
+  /** Paid payouts: TRUE once the claimer's wallet has been credited after the
+   *  publisher approved. Persisted only when true (see submissionToRow) so a
+   *  publisher's stale copy can never reset it and cause a double payout. */
+  credited?: boolean;
   /** Referral-exchange submissions: the claimer's link + description, shown to the owner for verification. */
   link?: string;
   note?: string;
@@ -232,7 +240,7 @@ export interface DepositOrder {
   network?: string;
   /** On-chain wallet deposits: the verified transaction hash. */
   txHash?: string;
-  /** On-chain wallet deposits: first-deposit bonus credited. */
+  /** On-chain wallet deposits: deposit bonus credited (package first-deposit or custom cashback). */
   bonus?: number;
   /** NOWPayments: generated crypto deposit address to send funds to. */
   payAddress?: string;

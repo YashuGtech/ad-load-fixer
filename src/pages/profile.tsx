@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Wallet, Coins, Plus, Download, Gift, Crown, Star,
   Lock, LockOpen, BadgeCheck, FileArchive, X, Hash, Zap,
-  Send, MessageSquareText,
+  Send, MessageSquareText, CheckCircle2, Loader2,
 } from "lucide-react";
 import { PREMIUM_PLANS, INTEREST_TAGS, getUser } from "@/lib/mock-data";
 import { useApp, planLimits } from "@/lib/store";
@@ -37,13 +37,32 @@ export default function Profile() {
     withdrawalUnlocked, withdraw, buyPremium, activeBan, addToast,
     interests, addInterest, removeInterest, postsLeftToday,
     contactSaved,
+    referralCodeEntered, invitedBy, enterReferralCode,
   } = useApp();
   const [contactOpen, setContactOpen] = useState(false);
+  const [refCode, setRefCode] = useState("");
+  const [refBusy, setRefBusy] = useState(false);
+  const [refError, setRefError] = useState<string | null>(null);
+
+  const doEnterRef = async () => {
+    if (refBusy || referralCodeEntered) return;
+    const c = refCode.trim();
+    if (!c) {
+      setRefError("Enter the referral code you were given.");
+      return;
+    }
+    setRefBusy(true);
+    setRefError(null);
+    const r = await enterReferralCode(c);
+    setRefBusy(false);
+    if (!r.ok) setRefError(r.error || "That code isn't valid — check with your friend.");
+    else setRefCode("");
+  };
 
   // In-app interstitial when the user opens the Profile page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!isPremium) void showPageInterstitial();
+  }, [isPremium]);
   const [chatThread, setChatThread] = useState<{ id: string; peer: string } | null>(null);
   const [premiumPay, setPremiumPay] = useState<string | null>(null);
   const ban = activeBan();
@@ -124,7 +143,7 @@ export default function Profile() {
                 <VerifiedTick show={isPremium} className="w-5 h-5" />
               </div>
               <div className="text-xs text-gray-400">
-                {isPremium ? `${limits.label} · Premium plan` : "Free plan · 2 posts / 20 leads per post daily · posts removed after 24h"}
+                {isPremium ? `${limits.label} · Premium plan` : "Free plan · 4 posts / 20 leads per post daily · posts removed after 9h"}
               </div>
 
               <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs font-bold">
@@ -194,7 +213,7 @@ export default function Profile() {
               <button
                 onClick={() => {
                   // Monetag interstitial before the Withdraw modal opens.
-                  void showMonetagInterstitial().then(() => {
+                  void (isPremium ? Promise.resolve() : showMonetagInterstitial()).then(() => {
                     setWError(null);
                     setWithdrawOpen(true);
                   });
@@ -256,6 +275,58 @@ export default function Profile() {
             )}
           </div>
 
+          {/* Referral code entry — enter a friend's invite code once (locked forever) */}
+          <div className="glass rounded-3xl border border-amber-400/20 p-5">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-400/25 flex items-center justify-center">
+                <Gift className="w-4 h-4 text-amber-300" />
+              </div>
+              <div>
+                <div className="font-extrabold text-sm">Referral code</div>
+                <div className="text-[11px] text-gray-400">Enter a friend&apos;s invite code</div>
+              </div>
+            </div>
+            {referralCodeEntered ? (
+              <div className="mt-3 rounded-xl p-3 border border-emerald-400/20 bg-emerald-500/10">
+                <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Code entered
+                </div>
+                <div className="text-[11px] text-gray-400 mt-1">
+                  You joined via <span className="font-mono text-gray-300">@{invitedBy || "—"}</span> — your inviter
+                  got rewarded. Codes can never be changed once entered.
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="mt-3 text-[11px] text-gray-400 leading-relaxed">
+                  Have a referral code from a friend? Enter it now — one time only, can&apos;t be changed later.
+                </p>
+                <div className="mt-2.5 flex gap-2">
+                  <input
+                    value={refCode}
+                    onChange={(e) => {
+                      setRefCode(e.target.value);
+                      setRefError(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && doEnterRef()}
+                    placeholder="e.g. CA7X or @username"
+                    autoComplete="off"
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-sm font-mono placeholder:text-gray-500 focus:outline-none focus:border-amber-400/40"
+                  />
+                  <button
+                    onClick={doEnterRef}
+                    disabled={refBusy}
+                    className="shrink-0 rounded-xl px-3.5 py-2.5 text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-amber-200 transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  >
+                    {refBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gift className="w-3.5 h-3.5" />}
+                    {refBusy ? "Checking…" : "Use code"}
+                  </button>
+                </div>
+                {refError && <div className="mt-2 text-[11px] text-rose-300">{refError}</div>}
+              </>
+            )}
+          </div>
+
           {/* Daily limits + feed interests */}
           <div className="glass rounded-3xl border border-white/10 p-5">
             <div className="flex items-center gap-2.5">
@@ -265,7 +336,7 @@ export default function Profile() {
               <div>
                 <div className="font-extrabold text-sm">Daily limits · {limits.label}</div>
                 <div className="text-[11px] text-gray-400">
-                  Resets at midnight · {isPremium ? "hitting the lead cap pauses the ad for 1 week" : "free posts are deleted after 24h or 20 leads/day"}
+                  Resets at midnight · {isPremium ? "hitting the lead cap pauses the ad for 1 week" : "free posts are deleted after 9h or 20 leads/day"}
                 </div>
               </div>
             </div>
@@ -341,7 +412,7 @@ export default function Profile() {
                       disabled={isPremium}
                       onClick={() => {
                         // Monetag interstitial before the Premium purchase flow.
-                        void showMonetagInterstitial().then(() => buyWithBalance(plan.id));
+                        void (isPremium ? Promise.resolve() : showMonetagInterstitial()).then(() => buyWithBalance(plan.id));
                       }}
                       className="rounded-lg px-2 py-2 text-[11px] font-bold bg-gradient-to-r from-brand-cyan to-brand-violet text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
@@ -351,7 +422,7 @@ export default function Profile() {
                       disabled={isPremium}
                       onClick={() => {
                         // Monetag interstitial before the Premium purchase flow.
-                        void showMonetagInterstitial().then(() => setPremiumPay(plan.id));
+                        void (isPremium ? Promise.resolve() : showMonetagInterstitial()).then(() => setPremiumPay(plan.id));
                       }}
                       className="rounded-lg px-2 py-2 text-[11px] font-bold bg-white/[0.05] border border-white/10 text-gray-200 hover:bg-white/10 hover:border-violet-400/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     >

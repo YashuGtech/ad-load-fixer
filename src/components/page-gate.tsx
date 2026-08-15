@@ -6,13 +6,15 @@ import { useApp } from "@/lib/store";
 import { showMonetagRewarded } from "@/lib/monetag";
 
 /** Routes that cost 1 page credit per open. The Earn page (/) and the admin
- *  panel stay free. New users get a few free credits; after that a rewarded
- *  interstitial is shown automatically and the page opens either way. */
+ *  panel stay free. New users get 4 free credits; after that a rewarded
+ *  interstitial is shown automatically and the page opens either way.
+ *  Premium users never see ads and are never gated. */
 const GATED = ["/promote", "/campaigns", "/leads", "/profile", "/users"];
 
 export default function PageGate({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const gated = GATED.some((p) => path === p || path.startsWith(`${p}/`));
+  const isPremium = useApp((s) => s.isPremium);
   const spendPageCredit = useApp((s) => s.spendPageCredit);
   const [unlocked, setUnlocked] = useState(false);
   const lastPath = useRef(path);
@@ -24,7 +26,7 @@ export default function PageGate({ children }: { children: React.ReactNode }) {
       handledPath.current = null;
       setUnlocked(false);
     }
-    if (!gated) return;
+    if (!gated || isPremium) return;
     if (handledPath.current === path) return;
     handledPath.current = path;
 
@@ -45,9 +47,9 @@ export default function PageGate({ children }: { children: React.ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [path, gated, spendPageCredit]);
+  }, [path, gated, isPremium, spendPageCredit]);
 
-  if (!gated || unlocked) return <>{children}</>;
+  if (!gated || isPremium || unlocked) return <>{children}</>;
 
   return (
     <motion.div

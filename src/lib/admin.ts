@@ -61,12 +61,12 @@ export function isAdmin(): boolean {
     .filter((n: number) => Number.isFinite(n) && n > 0);
   const id = tgId();
   if (ids.length > 0 && id !== null && ids.includes(id)) return true;
-  const pass = import.meta.env.VITE_ADMIN_PASSCODE || DEFAULT_PASSCODE;
+  const pass = String(import.meta.env.VITE_ADMIN_PASSCODE || DEFAULT_PASSCODE);
   return readAuth() === pass;
 }
 
 export function tryAdminPasscode(code: string): boolean {
-  const pass = import.meta.env.VITE_ADMIN_PASSCODE || DEFAULT_PASSCODE;
+  const pass = String(import.meta.env.VITE_ADMIN_PASSCODE || DEFAULT_PASSCODE);
   if (code.trim() === pass) {
     writeAuth(code.trim());
     return true;

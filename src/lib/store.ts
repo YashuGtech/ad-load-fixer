@@ -22,25 +22,34 @@ import type {
   WithdrawalRequest,
 } from "./types";
 import { PREMIUM_PLANS, SEED_NOTIFICATIONS, SEED_SUBMISSIONS, TASKS, CAMPAIGNS, TRANSACTIONS, getUser, registerProfiles } from "./mock-data";
-import { depositEndpoint, hasFirstDepositBonus, DEPOSIT_PACKAGES } from "./payments";
+import { depositEndpoint, hasFirstDepositBonus, customDeposit, DEPOSIT_PACKAGES } from "./payments";
+import { BAN_FREE_MS, BAN_PREMIUM_MS, isPermanentBan, permanentBanUntil } from "./ban";
 import { restrictedMessage } from "./security";
 import type { SecurityVerdict } from "./security";
+import { calcLoyaltyRate } from "./loyalty";
+import type { LoyaltyGives } from "./loyalty";
 import {
   cachedQuery,
   currentUserId,
   fetchChats,
   fetchMarketplace,
+  fetchMySubmissionsFresh,
+  fetchBans,
   fetchProfiles,
   fetchSettings,
   fetchUserData,
   findUserByCode,
+  invalidateCache,
   isSupabaseReady,
+  submitReport,
+  type ReportVerdict,
   queueDelete,
   queueDeleteWhere,
   queueInsert,
   queueWrite,
   flushWrites,
   syncNow,
+  emailUserInfo,
   tgUserInfo,
   validateTgSession,
   MARKETPLACE_CACHE_KEY,
@@ -87,6 +96,9 @@ interface AppState {
   deposits: DepositOrder[];
   withdrawals: WithdrawalRequest[];
   userRatings: Record<string, { rating: number; count: number }>;
+  /** Ratings this user has GIVEN — every 5★ adds +1% and every 4★ +0.5% to
+   *  their loyalty rate (loyal rater), capped at the max (see lib/loyalty.ts). */
+  loyaltyGives: LoyaltyGives;
   /** On-chain tx hashes already credited to the wallet — never credit twice. */
   creditedTx: Record<string, boolean>;
 
@@ -135,6 +147,10 @@ interface AppState {
 
   // supabase sync (frontend-only, cached reads + debounced writes)
   hydrateFromSupabase: () => Promise<void>;
+  /** Fresh (cache-bypassing) pull of the submissions the user participates in
+   *  — publishers see new claims the moment they open Campaigns/Leads, and
+   *  claimers pick up approved paid payouts. Never drops unsynced local rows. */
+  refreshSubmissions: () => Promise<void>;
   syncCollections: (scopes: SyncScope[]) => void;
 
   // post lifecycle & support
@@ -181,7 +197,11 @@ interface AppState {
   // social
   follow: (handle: string) => void;
   unfollow: (handle: string) => void;
-  reportUser: (handle: string, reason: string) => { banned: boolean; durationLabel: string | null; count: number };
+  /** File a report — enforced globally via the moderate_report edge function
+   *  (records the report, counts server-side, applies the plan-based auto-ban
+   *  to the shared bans table). Falls back to local-only moderation when the
+   *  function isn't deployed / Supabase is off. */
+  reportUser: (handle: string, reason: string) => Promise<{ banned: boolean; durationLabel: string | null; count: number; threshold: number }>;
   isBanned: (handle: string) => Ban | null;
   activeBan: () => Ban | null;
   isPremiumUser: (handle: string) => boolean;
@@ -220,8 +240,8 @@ interface AppState {
   pushNotification: (n: Omit<NotificationItem, "id" | "read">) => void;
 }
 
-/** Free-tier daily limits: 2 posts/day, 20 leads per post/day (post deleted at cap or after 24h). */
-export const FREE_LIMITS = { postsPerDay: 2, leadsPerPostPerDay: 20 };
+/** Free-tier daily limits: 4 posts/day, 20 leads per post/day (post deleted at cap or after 9h). */
+export const FREE_LIMITS = { postsPerDay: 4, leadsPerPostPerDay: 20 };
 
 /** Welcome balance of page credits — enough to explore, few enough that the
  *  watch-ad loop kicks in fast. Earned by watching rewarded interstitials. */
@@ -229,7 +249,7 @@ export const PAGE_CREDITS_START = 4;
 
 /**
  * Plan-based daily limits:
- *  Free    → 2 posts/day · 20 leads per post/day (post DELETED at cap / after 24h)
+ *  Free    → 4 posts/day · 20 leads per post/day (post DELETED at cap / after 9h)
  *  1 Week  → 4 posts/day · 50 leads per post/day
  *  1 Month → 10 posts/day · 100 leads per post/day
  *  3 Months→ 100 posts/day · 100 leads per post/day
@@ -248,7 +268,6 @@ export function planLimits(isPremium: boolean, planId: string | null): {
 
 export const BOOST_PRICE = 2;
 export const BOOST_HOURS = 6;
-export const LOYALTY_PENALTY_PER_PENDING = 2;
 export const AUTO_DISABLE_WEEKS = 1; // days an ad is disabled after hitting its daily lead cap
 export const AUTO_DISABLE_MS = 7 * 24 * 3600_000;
 
@@ -318,7 +337,54 @@ const INIT_SUCCESS_RATE = DB_MODE ? 90 : 94;
 
 export const useApp = create<AppState>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      /**
+       * Paid payout delivery: the publisher approves a claim on THEIR client,
+       * so the claimer's wallet is credited here from the synced row (the
+       * approving client can't write into the claimer's wallet — RLS blocks
+       * cross-owner transactions). Every approved + paid submission owned by
+       * the current user that isn't flagged `credited` pays out, then the flag
+       * is persisted so the credit happens exactly once (boot + page refresh).
+       */
+      const creditApprovedPayouts = (list: Submission[] | null | undefined): void => {
+        if (!list?.length) return;
+        const me = currentUserId();
+        const due = list.filter(
+          (x) =>
+            x.status === "approved" &&
+            x.mode !== "referral" && // paid (or legacy rows without a mode) only
+            !x.credited &&
+            (x.handle === me || x.userId === me) &&
+            Number(x.reward) > 0
+        );
+        if (!due.length) return;
+        const dueIds = new Set(due.map((x) => x.id));
+        set((s) => ({
+          submissions: s.submissions.map((x) => (dueIds.has(x.id) ? { ...x, credited: true } : x)),
+        }));
+        due.forEach((x) =>
+          get().credit(
+            Number(x.reward),
+            `Claim approved · @${x.posterHandle ?? x.poster ?? "publisher"}`,
+            `Submission ${x.id.slice(0, 6)}`
+          )
+        );
+        // Persist the flag so a later sync never double-pays this claimer.
+        get().syncCollections(["submissions"]);
+        void flushWrites();
+      };
+      /** Block suspended accounts from acting. Returns an error result (or
+       *  null when the account is in good standing) so publishing, claiming
+       *  and wallet actions stop while a ban is active. */
+      const banCheck = (): { ok: false; error: string } | null => {
+        const ban = get().activeBan();
+        if (!ban) return null;
+        return {
+          ok: false,
+          error: `Account suspended until ${new Date(ban.until).toLocaleString()}${ban.reason ? " — " + ban.reason : ""}.`,
+        };
+      };
+      return {
       // identity
       username: INIT_USERNAME,
       handle: "you",
@@ -350,6 +416,7 @@ export const useApp = create<AppState>()(
       deposits: [],
       withdrawals: [],
       userRatings: {},
+      loyaltyGives: { five: 0, four: 0 },
       creditedTx: {},
 
       // social
@@ -416,23 +483,29 @@ export const useApp = create<AppState>()(
           // User data cache is scoped per identity so one browser account can
           // never serve another account's cached rows.
           const me = await cachedQuery(`${USER_CACHE_KEY}:${currentUserId()}`, USER_CACHE_TTL, fetchUserData);
+          // Bans ride their own short-TTL cache (60s) so admin unbans and ban
+          // expiry reach the user quickly instead of waiting out the 15-minute
+          // user-data cache.
+          const bansRes = await cachedQuery("bans:v1", 60_000, fetchBans);
           const settings = await cachedQuery("settings:v1", MARKETPLACE_CACHE_TTL, fetchSettings);
           const chats = await cachedQuery("chats:v1", MARKETPLACE_CACHE_TTL, fetchChats);
           // Public profiles feed getUser() so NO page ever shows demo users.
           const profiles = await cachedQuery("profiles:v1", MARKETPLACE_CACHE_TTL, fetchProfiles);
           if (profiles) registerProfiles(profiles);
 
-          // AUTO-CREATE ACCOUNT: first open from Telegram — no profile row yet.
-          // Upsert one keyed by tg-<id> so the user (and the admin panel's user
-          // count) always have an account.
+          // AUTO-CREATE ACCOUNT: first open from Telegram or the browser after
+          // email sign-in — no profile row yet. Both identities get the same
+          // marketplace account and feature set.
           const autoCreated = !!(me && !me.profile && currentUserId() !== "you");
           if (autoCreated) {
             const info = tgUserInfo();
-            const name = info?.name || `tg-${info?.id ?? "user"}`;
+            const email = emailUserInfo();
+            const name = info?.name || email?.name || email?.email.split("@")[0] || `user-${email?.id.slice(0, 8) ?? "new"}`;
             queueWrite(
               "profiles",
               {
                 handle: currentUserId(),
+                email: email?.email ?? null,
                 name,
                 tg: info?.username ?? null,
                 tier: "Silver",
@@ -440,6 +513,8 @@ export const useApp = create<AppState>()(
                 rating: 4.5,
                 rating_count: 0,
                 success_rate: 90,
+                five_star_gives: 0,
+                four_star_gives: 0,
                 followers: 0,
                 following: 0,
                 tasks_done: 0,
@@ -456,33 +531,68 @@ export const useApp = create<AppState>()(
             if (mkt) {
               if (mkt.tasks.length) next.tasks = mkt.tasks;
               if (mkt.campaigns.length) next.campaigns = mkt.campaigns;
-              if (mkt.submissions.length) next.submissions = mkt.submissions;
+              if (mkt.submissions.length) {
+                // A cached/publisher copy may still have credited=false. Never
+                // reset a local payout flag while merging remote submissions,
+                // otherwise boot + refresh can pay the same claim twice.
+                const byId = new Map(s.submissions.map((x) => [x.id, x]));
+                mkt.submissions.forEach((x) => {
+                  const local = byId.get(x.id);
+                  byId.set(x.id, local?.credited ? { ...x, credited: true } : x);
+                });
+                next.submissions = Array.from(byId.values());
+              }
             }
             // Brand-new auto-created account — surface the tg identity
             // immediately instead of leaving "You"/@you for the next visit.
             if (autoCreated && currentUserId() !== "you") {
               const info = tgUserInfo();
+              const email = emailUserInfo();
               next.handle = currentUserId();
-              next.username = info?.name || next.username || s.username;
-              next.displayHandle = info ? (info.username || `tg-${info.id}`) : s.displayHandle;
-              next.referralCode = info ? (info.username || `tg-${info.id}`) : s.referralCode;
+              next.username = info?.name || email?.name || email?.email.split("@")[0] || next.username || s.username;
+              next.displayHandle = info ? (info.username || `tg-${info.id}`) : (email?.email || s.displayHandle);
+              next.referralCode = info ? (info.username || `tg-${info.id}`) : currentUserId();
             }
             if (me) {
               if (me.profile) {
                 next.handle = me.profile.handle ?? s.handle;
                 next.username = me.profile.name ?? s.username;
-                next.displayHandle = me.profile.tg ?? me.profile.handle ?? s.displayHandle;
+                next.displayHandle = me.profile.tg ?? me.profile.email ?? me.profile.handle ?? s.displayHandle;
                 // Referral code is always the user's name (username or tg-<id>).
                 const tgi = tgUserInfo();
                 if (tgi) next.referralCode = tgi.username || `tg-${tgi.id}`;
                 next.tier = me.profile.tier ?? s.tier;
                 next.isPremium = me.profile.is_premium ?? s.isPremium;
+                next.premiumPlanId = me.profile.premium_plan_id ?? s.premiumPlanId;
+                next.premiumExpiry = me.profile.premium_expiry
+                  ? Date.parse(me.profile.premium_expiry) || s.premiumExpiry
+                  : s.premiumExpiry;
                 next.rating = me.profile.rating != null ? Number(me.profile.rating) : s.rating;
                 next.ratingCount = me.profile.rating_count ?? s.ratingCount;
                 next.successRate = me.profile.success_rate ?? s.successRate;
                 next.referralLocked = me.profile.referrals_locked ?? s.referralLocked;
+                // Loyal rater counters (profiles.five_star_gives / four_star_gives)
+                // restore the user's loyalty rate across devices.
+                next.loyaltyGives = {
+                  five: Number(me.profile.five_star_gives ?? s.loyaltyGives?.five ?? 0),
+                  four: Number(me.profile.four_star_gives ?? s.loyaltyGives?.four ?? 0),
+                };
               }
               if (me.transactions.length) next.transactions = me.transactions;
+              // Wallet balance in DB mode is derived from the transaction ledger
+              // so a fresh device (no persisted state) restores the correct
+              // `usdt`. Only wallet ledger types count — referral/bonus entries
+              // feed the promo balance, which the referrals merge credits
+              // separately above.
+              if (me.transactions.length) {
+                let usdtLedger = 0;
+                for (const t of me.transactions) {
+                  if (t.type !== "referral" && t.type !== "bonus") {
+                    usdtLedger = Math.round((usdtLedger + Number(t.amount)) * 100) / 100;
+                  }
+                }
+                next.usdt = Math.max(0, usdtLedger);
+              }
               if (me.notifications.length) next.notifications = me.notifications;
               if (me.deposits.length) next.deposits = me.deposits;
               if (me.withdrawals.length) next.withdrawals = me.withdrawals;
@@ -517,14 +627,16 @@ export const useApp = create<AppState>()(
                 }
               }
               if (Object.keys(me.userRatings).length) next.userRatings = me.userRatings;
-              // Admin bans loaded from the DB — merged with local report bans.
-              if (me.bans?.length) {
-                const merged = [...me.bans];
-                s.bans.forEach((b) => {
-                  if (!merged.some((m) => m.handle === b.handle)) merged.push(b);
-                });
-                next.bans = merged;
-              }
+              // Bans are authoritative from the DB: REPLACE local state so admin
+              // unbans, expired bans and deleted ban rows actually clear for this
+              // user. (Local-only bans from the offline report fallback are
+              // intentionally dropped — a ban only applies globally once it
+              // exists in the shared `bans` table.) Only replace when the DB
+              // actually answered (bansOk) so a failed read can't masquerade as
+              // "no bans" and clear a real ban from local state. The fresh
+              // 60s-TTL read takes priority over the cached `me.bans`.
+              if (bansRes?.bansOk) next.bans = bansRes.bans;
+              else if (me.bansOk && me.bans) next.bans = me.bans;
               if (me.reviewRequests?.length) next.reviewRequests = me.reviewRequests;
             }
             if (settings && settings.referrals_enabled === "false") next.referralsEnabled = false;
@@ -543,15 +655,23 @@ export const useApp = create<AppState>()(
             // (submissions never reached the publisher).
             if (currentUserId() !== "you") {
               const tgiF = tgUserInfo();
+              const emailF = emailUserInfo();
               next.handle = currentUserId();
               if (tgiF) {
                 next.username = tgiF.name || next.username || s.username;
                 next.displayHandle = tgiF.username || `tg-${tgiF.id}`;
                 next.referralCode = tgiF.username || `tg-${tgiF.id}`;
+              } else if (emailF) {
+                next.username = emailF.name || emailF.email.split("@")[0] || next.username || s.username;
+                next.displayHandle = emailF.email;
+                next.referralCode = currentUserId();
               }
             }
             return next;
           });
+          // Cross-user payout: claims the publisher approved on their side get
+          // credited to this user's wallet here (and flagged so it happens once).
+          creditApprovedPayouts(get().submissions);
           // Keep profiles.tg (the user's real Telegram username) in sync so
           // ad-proof and contact links resolve to @username instead of the
           // tg-<id> fallback. Only write when we hold authoritative DB values
@@ -561,7 +681,7 @@ export const useApp = create<AppState>()(
           if (me?.profile && tgiSync?.username && me.profile.tg !== tgiSync.username) {
             get().syncCollections(["profile"]);
           }
-          // Free posts older than 24h are removed on every boot.
+          // Free posts older than 9h are removed on every boot.
           get().expireFreePosts();
         } catch {
           // offline / demo — keep local data
@@ -580,19 +700,31 @@ export const useApp = create<AppState>()(
           notifications: s.notifications,
           deposits: s.deposits,
           withdrawals: s.withdrawals,
-          referrals: s.referrals,
-          userRatings: s.userRatings,
-          chats: s.chats,
-          reviewRequests: s.reviewRequests,
-          referralsEnabled: s.referralsEnabled,
-          referralLocked: s.referralLocked,
-          username: s.username,
-          tier: s.tier,
-          isPremium: s.isPremium,
-          rating: s.rating,
-          ratingCount: s.ratingCount,
-          successRate: s.successRate,
-        });
+          referrals: s.referrals,            userRatings: s.userRatings,
+            chats: s.chats,
+            reviewRequests: s.reviewRequests,
+            referralsEnabled: s.referralsEnabled,
+            referralLocked: s.referralLocked,
+            username: s.username,
+            tier: s.tier,
+            isPremium: s.isPremium,
+            rating: s.rating,
+            ratingCount: s.ratingCount,
+            successRate: s.successRate,
+            // Loyal rater counters — profileToRow persists them so the rate
+            // survives across devices (never write zeros over real counts).
+            loyaltyGives: s.loyaltyGives,
+            premiumPlanId: s.premiumPlanId,
+            premiumExpiry: s.premiumExpiry,
+          });
+        // A successful local action must not be replaced by the old 15-minute
+        // user-data cache on the next hydrate. Critical actions also flush
+        // explicitly below; this invalidation covers every synced wallet/profile
+        // change and keeps the cache coherent for the next read.
+        if (scopes.some((scope) => ["profile", "transactions", "deposits", "submissions"].includes(scope))) {
+          invalidateCache(`${USER_CACHE_KEY}:${currentUserId()}`);
+        }
+        if (scopes.includes("submissions")) invalidateCache(MARKETPLACE_CACHE_KEY);
       },
 
       setReferralsEnabled: (v) => {
@@ -600,9 +732,32 @@ export const useApp = create<AppState>()(
         get().syncCollections(["settings"]);
       },
 
+      // Pull the latest submissions from the DB (bypasses the 15-min cache) —
+      // publishers see new claims the moment they open Campaigns/Leads, and
+      // claimers pick up approved payouts immediately.
+      refreshSubmissions: async () => {
+        if (!isSupabaseReady()) return;
+        const fresh = await fetchMySubmissionsFresh().catch(() => null);
+        if (!fresh) return;
+        let merged: Submission[] = [];
+        set((s) => {
+          const byId = new Map(s.submissions.map((x) => [x.id, x]));
+          fresh.forEach((x) => {
+            const local = byId.get(x.id);
+            byId.set(x.id, local?.credited ? { ...x, credited: true } : x);
+          });
+          merged = Array.from(byId.values());
+          return { submissions: merged };
+        });
+        creditApprovedPayouts(merged);
+      },
+
       markContactSaved: () => set({ contactSaved: true }),
 
       sendChat: (threadId, body) => {
+        // Chat is intentionally deferred for anonymous visitors. Telegram
+        // sessions and signed-in email accounts can use the same Premium chat.
+        if (currentUserId() === "you") return { ok: false, error: "Sign in to use in-app chat." };
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
         if (!get().isPremium)
@@ -615,16 +770,16 @@ export const useApp = create<AppState>()(
         return { ok: true };
       },
 
-      // Free users' posts expire after 24h (premium posts stay forever).
+      // Free users' posts expire after 9h (premium posts stay forever).
       expireFreePosts: () => {
         if (get().isPremium) return;
         const now = Date.now();
-        const DAY24 = 24 * 3600_000;
+        const FREE_POST_TTL = 9 * 3600_000;
         const expiredTasks = get().tasks.filter(
-          (t) => t.posterHandle === get().handle && !!t.createdAt && now - t.createdAt > DAY24
+          (t) => t.posterHandle === get().handle && !!t.createdAt && now - t.createdAt > FREE_POST_TTL
         );
         const expiredCamps = get().campaigns.filter(
-          (c) => c.posterHandle === get().handle && !!c.createdAt && now - c.createdAt > DAY24
+          (c) => c.posterHandle === get().handle && !!c.createdAt && now - c.createdAt > FREE_POST_TTL
         );
         if (expiredTasks.length === 0 && expiredCamps.length === 0) return;
         const tIds = new Set(expiredTasks.map((t) => t.id));
@@ -635,6 +790,21 @@ export const useApp = create<AppState>()(
           tasks: s.tasks.filter((t) => !tIds.has(t.id)),
           campaigns: s.campaigns.filter((c) => !cIds.has(c.id)),
         }));
+        // Upsell: free posts just expired — remind once per day that Premium
+        // keeps posts forever (no more 9h auto-deletion).
+        try {
+          const last = Number(localStorage.getItem("pp-expiry-upsell") || 0);
+          if (Date.now() - last > 86_400_000) {
+            localStorage.setItem("pp-expiry-upsell", String(Date.now()));
+            get().addToast({
+              type: "info",
+              title: "Free posts expire after 9h",
+              description: "Go Premium to keep your posts permanently — no more auto-deletion.",
+            });
+          }
+        } catch {
+          /* ignore */
+        }
       },
 
       credit: (amount, label, meta) => {
@@ -697,6 +867,8 @@ export const useApp = create<AppState>()(
       createDeposit: async (amount, opts) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         try {
           // Frontend-only: prefer the Supabase Edge Function (free, no Node
           // backend needed). Falls back to the Next API route for local dev.
@@ -728,6 +900,7 @@ export const useApp = create<AppState>()(
             };
             set((s) => ({ deposits: [order, ...s.deposits] }));
             get().syncCollections(["deposits"]);
+            void flushWrites();
             return {
               ok: true,
               trackId: data.trackId,
@@ -759,10 +932,12 @@ export const useApp = create<AppState>()(
                 }));
                 get().grantPremium(dep.planId);
               } else {
-                // First-deposit bonus ladder applies to NOWPayments deposits too.
+                // First-deposit bonus ladder applies to package deposits too.
+                // Custom deposits above $5 earn +75% cashback on EVERY deposit.
                 const first = !hasFirstDepositBonus(get().deposits.filter((d) => d.trackId !== trackId));
                 const pkg = DEPOSIT_PACKAGES.find((p) => p.amount === dep.amount);
-                const bonus = first && pkg ? pkg.bonus : 0;
+                const custom = pkg ? null : customDeposit(dep.amount);
+                const bonus = pkg ? (first ? pkg.bonus : 0) : (custom ? custom.bonus : 0);
                 const credited = Math.round((dep.amount + bonus) * 100) / 100;
                 set((s) => ({
                   deposits: s.deposits.map((d) => (d.trackId === trackId ? { ...d, status: "paid", bonus } : d)),
@@ -775,7 +950,7 @@ export const useApp = create<AppState>()(
                       label: `USDT deposit (NOWPayments)`,
                       amount: credited,
                       date: `Today, ${nowLabel()}`,
-                      meta: bonus > 0 ? `NOWPayments #${dep.trackId} · +${bonus.toFixed(2)} first-deposit bonus` : `Payment #${dep.trackId}`,
+                      meta: bonus > 0 ? `NOWPayments #${dep.trackId} · +${bonus.toFixed(2)} deposit bonus` : `Payment #${dep.trackId}`,
                     },
                     ...s.transactions,
                   ],
@@ -784,14 +959,14 @@ export const useApp = create<AppState>()(
                 get().pushNotification({
                   type: "system",
                   title: `Deposit confirmed · +${credited.toFixed(2)} USDT`,
-                  description: bonus > 0 ? `Incl. +${bonus.toFixed(2)} first-deposit bonus` : `Your NOWPayments payment #${dep.trackId} was confirmed`,
+                  description: bonus > 0 ? `Incl. +${bonus.toFixed(2)} deposit bonus` : `Your NOWPayments payment #${dep.trackId} was confirmed`,
                   at: "Just now",
                 });
                 get().addToast({
                   type: "success",
                   title: `Deposit confirmed · +${credited.toFixed(2)} USDT`,
                   amount: credited,
-                  description: bonus > 0 ? `Incl. +${bonus.toFixed(2)} first-deposit bonus` : "Balance updated from NOWPayments",
+                  description: bonus > 0 ? `Incl. +${bonus.toFixed(2)} deposit bonus` : "Balance updated from NOWPayments",
                 });
               }
             } else if (dep && dep.status !== status) {
@@ -800,6 +975,7 @@ export const useApp = create<AppState>()(
               }));
             }
             get().syncCollections(["deposits"]);
+            void flushWrites();
             return { ok: true, status };
           }
           return { ok: false, error: data.error || "Inquiry failed" };
@@ -829,6 +1005,8 @@ export const useApp = create<AppState>()(
       verifyUsdtDeposit: async (network, txHash, amount) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         const ep = depositEndpoint();
         if (!ep) return { ok: false, error: "Supabase is not configured — wallet deposits are unavailable." };
         const hash = txHash.trim().toLowerCase();
@@ -878,7 +1056,7 @@ export const useApp = create<AppState>()(
                   date: `Today, ${nowLabel()}`,
                   meta:
                     bonus > 0
-                      ? `Verified on-chain · +${bonus.toFixed(2)} first-deposit bonus`
+                      ? `Verified on-chain · +${bonus.toFixed(2)} deposit bonus`
                       : `Verified on-chain · ${hash.slice(0, 10)}…`,
                 },
                 ...s.transactions,
@@ -891,7 +1069,7 @@ export const useApp = create<AppState>()(
               title: `Deposit confirmed · +${credited.toFixed(2)} USDT`,
               description:
                 bonus > 0
-                  ? `Incl. +${bonus.toFixed(2)} first-deposit bonus — verified on ${network}`
+                  ? `Incl. +${bonus.toFixed(2)} deposit bonus — verified on ${network}`
                   : `Verified on ${network} · ${hash.slice(0, 10)}…`,
               at: "Just now",
             });
@@ -905,6 +1083,8 @@ export const useApp = create<AppState>()(
       withdraw: async (amount, address) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         const MIN = 5;
         if (!Number.isFinite(amount) || amount < MIN)
           return { ok: false, error: `Minimum withdrawal is $${MIN.toFixed(2)} USDT` };
@@ -951,6 +1131,8 @@ export const useApp = create<AppState>()(
       grantPremium: (planId) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         const plan: PremiumPlan | undefined = PREMIUM_PLANS.find((p) => p.id === planId);
         if (!plan) return { ok: false, error: "Unknown plan" };
         set((s) => ({
@@ -963,6 +1145,7 @@ export const useApp = create<AppState>()(
           ],
         }));
         get().syncCollections(["profile", "transactions"]);
+        void flushWrites();
         get().pushNotification({
           type: "system",
           title: `Premium activated · ${plan.label}`,
@@ -977,7 +1160,9 @@ export const useApp = create<AppState>()(
       publishAd: (input) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
-        get().expireFreePosts(); // free posts only live 24h
+        const bc = banCheck();
+        if (bc) return bc;
+        get().expireFreePosts(); // free posts only live 9h
         const { title, platform, action, target, reward, quantity, mode, instructions, tags } = input;
         if (!title.trim()) return { ok: false, error: "Give your ad a title" };
         if (quantity <= 0) return { ok: false, error: "Quantity must be positive" };
@@ -1125,6 +1310,8 @@ export const useApp = create<AppState>()(
       submitClaim: (taskId, proof, note, link) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         const task = get().tasks.find((t) => t.id === taskId);
         if (!task) return { ok: false, error: "Task not found" };
         if (!proof.trim() && !note.trim()) return { ok: false, error: "Add your @handle or a note as proof" };
@@ -1253,6 +1440,8 @@ export const useApp = create<AppState>()(
       approveSubmission: (id) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         const sub = get().submissions.find((s) => s.id === id);
         if (!sub) return { ok: false, error: "Submission not found" };
         if (sub.status === "approved") return { ok: true };
@@ -1291,7 +1480,18 @@ export const useApp = create<AppState>()(
         }
 
         set((s) => ({
-          submissions: s.submissions.map((x) => (x.id === id ? { ...x, status: "approved", reason: undefined } : x)),
+          submissions: s.submissions.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  status: "approved",
+                  reason: undefined,
+                  // Self-approval: the wallet credit below is applied right
+                  // here, so flag the row so the sync payout can't double-pay.
+                  credited: mode === "paid" && x.handle === get().handle ? true : x.credited,
+                }
+              : x
+          ),
           // Reflect the payout on the poster's active campaign (per-lead cost, capped at budget).
           campaigns: s.campaigns.map((c, idx, arr) => {
             const autoDisabled = c.disabledUntil && c.disabledUntil > Date.now();
@@ -1310,6 +1510,7 @@ export const useApp = create<AppState>()(
           }),
         }));
         get().syncCollections(["submissions", "transactions"]);
+        void flushWrites();
 
         if (mode === "referral") {
           // Referral exchange — after the owner verifies & accepts, the claimer's link and
@@ -1382,49 +1583,77 @@ export const useApp = create<AppState>()(
         get().addToast({ type: "info", title: `Unfollowed @${handle}` });
       },
 
-      reportUser: (handle, reason) => {
+      reportUser: async (handle, reason) => {
         const isPremium = get().isPremiumUser(handle);
         const threshold = isPremium ? 10 : 2;
         const durationLabel = isPremium ? "72 hours" : "7 days";
         const alreadyBanned = get().isBanned(handle) !== null;
         set((s) => ({ reports: [...s.reports, { target: handle, by: get().handle, at: Date.now(), reason }] }));
-        // Sync the report to the DB so the admin panel's "most reported user"
-        // reflects real reports (RLS: insertable by the reporter).
+
+        // Ask the server for the authoritative verdict when Supabase is wired:
+        // it records the report, counts reports for the target from EVERY
+        // device, and applies the plan-based auto-ban to the shared bans table
+        // so the reported user is actually blocked for everyone. When the edge
+        // function isn't deployed (or we're offline) the report is still
+        // queued to the DB and moderation falls back to local counting.
+        let verdict: ReportVerdict | null = null;
         if (isSupabaseReady()) {
-          queueInsert("reports", {
-            target: handle,
-            by: currentUserId(),
-            reason,
-            at: new Date().toISOString(),
-          });
+          try {
+            verdict = await submitReport(handle, reason);
+          } catch {
+            // queueInsert fallback: keep reports in the DB for the admin panel
+            // even if the edge function is unavailable.
+            queueInsert("reports", {
+              target: handle,
+              by: currentUserId(),
+              reason,
+              at: new Date().toISOString(),
+            });
+          }
         }
-        const recent = get().reports.filter((r) => r.target === handle && Date.now() - r.at < HOUR).length;
-        if (recent >= threshold && !alreadyBanned) {
-          const until = Date.now() + (isPremium ? 72 * HOUR : 7 * DAY);
+        const count = verdict ? verdict.count : get().reports.filter((r) => r.target === handle && Date.now() - r.at < HOUR).length;
+        const effThreshold = verdict ? verdict.threshold : threshold;
+        const effDuration = verdict?.durationLabel ?? durationLabel;
+        const effAlready = alreadyBanned || (verdict?.alreadyBanned ?? false);
+        const banned = verdict ? verdict.banned : count >= effThreshold;
+        // Repeat offender (already under an active ban and past the threshold
+        // again) → PERMANENT ban. First offense → plan-based duration.
+        const permanent = verdict
+          ? verdict.permanent === true || isPermanentBan(Date.parse(verdict.until ?? "") || 0)
+          : effAlready && count >= effThreshold;
+
+        if (banned && (!effAlready || permanent)) {
+          const effLabel = permanent ? "Permanent" : effDuration;
+          const until = permanent
+            ? permanentBanUntil()
+            : verdict?.until
+              ? Date.parse(verdict.until)
+              : Date.now() + (isPremium ? BAN_PREMIUM_MS : BAN_FREE_MS);
           set((s) => ({
-            bans: [...s.bans.filter((b) => b.handle !== handle), { handle, until, reason: `Reports: ${reason}` }],
+            bans: [
+              ...s.bans.filter((b) => b.handle !== handle),
+              { handle, until, reason: permanent ? "Permanent ban — repeat offenses" : `Reports: ${reason}` },
+            ],
           }));
           get().pushNotification({
             type: "report",
-            title: `@${handle} banned for ${durationLabel}`,
-            description: `Reached ${recent} reports within an hour`,
+            title: `@${handle} banned ${permanent ? "permanently" : `for ${effLabel}`}`,
+            description: `Reached ${count} reports within an hour`,
             at: "Just now",
           });
           get().addToast({
             type: "danger",
-            title: `@${handle} banned · ${durationLabel}`,
-            description: "Auto-moderation applied",
+            title: `@${handle} banned · ${effLabel}`,
+            description: permanent ? "Repeat offenses — permanent suspension" : "Auto-moderation applied",
           });
-          return { banned: true, durationLabel, count: recent };
+          return { banned: true, durationLabel: effLabel, count, threshold: effThreshold };
         }
         get().addToast({
-          type: alreadyBanned
-            ? "info"
-            : "info",
-          title: alreadyBanned ? `@${handle} is already suspended` : `Report filed against @${handle}`,
-          description: alreadyBanned ? durationLabel : `Reviews remaining to ban: ${threshold - recent}`,
+          type: "info",
+          title: effAlready ? `@${handle} is already suspended` : `Report filed against @${handle}`,
+          description: effAlready ? effDuration : `Reviews remaining to ban: ${effThreshold - count}`,
         });
-        return { banned: alreadyBanned, durationLabel: alreadyBanned ? durationLabel : null, count: recent };
+        return { banned: effAlready || banned, durationLabel: effAlready || banned ? effDuration : null, count, threshold: effThreshold };
       },
 
       isBanned: (handle) => {
@@ -1447,6 +1676,8 @@ export const useApp = create<AppState>()(
       buyPremium: (planId) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         const plan: PremiumPlan | undefined = PREMIUM_PLANS.find((p) => p.id === planId);
         if (!plan) return { ok: false, error: "Unknown plan" };
         if (get().usdt < plan.price)
@@ -1462,6 +1693,7 @@ export const useApp = create<AppState>()(
           ],
         }));
         get().syncCollections(["profile", "transactions"]);
+        void flushWrites();
         get().pushNotification({
           type: "system",
           title: `Premium activated · ${plan.label}`,
@@ -1483,6 +1715,11 @@ export const useApp = create<AppState>()(
         const sec = get().security;
         if (sec.status === "restricted") {
           get().addToast({ type: "warning", title: "Security restriction", description: restrictedMessage(sec.reasons) });
+          return;
+        }
+        const ban = get().activeBan();
+        if (ban) {
+          get().addToast({ type: "warning", title: "Account suspended", description: `Suspended until ${new Date(ban.until).toLocaleString()}.` });
           return;
         }
         if (!get().referralsEnabled) {
@@ -1517,8 +1754,8 @@ export const useApp = create<AppState>()(
           bonus7Applied: get().bonus7Applied || bonusEarned,
           usdtBonus: get().usdtBonus + (bonusEarned ? 5 : 0),
           isPremium: get().isPremium || premiumGranted,
-          premiumPlanId: premiumGranted ? "month" : get().premiumPlanId,
-          premiumExpiry: premiumGranted ? Date.now() + 30 * DAY : get().premiumExpiry,
+          premiumPlanId: premiumGranted ? "week" : get().premiumPlanId,
+          premiumExpiry: premiumGranted ? Date.now() + 7 * DAY : get().premiumExpiry,
         }));
         get().syncCollections(["referrals", "transactions", "profile"]);
         get().tickLive();
@@ -1528,7 +1765,7 @@ export const useApp = create<AppState>()(
           description: bonusEarned
             ? "Milestone reached: 7 referrals · +$5.00 extra"
             : premiumGranted
-            ? "Milestone reached: 10 referrals · Premium for 1 month"
+            ? "Milestone reached: 10 referrals · 1 week of Premium"
             : `Progress: ${count}/10 toward Premium`,
           at: "Just now",
         });
@@ -1539,7 +1776,7 @@ export const useApp = create<AppState>()(
           description: bonusEarned ? "7 referrals reached · +$5.00 extra!" : premiumGranted ? "10 referrals reached · Premium granted!" : `Milestones: ${count}/10`,
         });
         if (premiumGranted) {
-          get().addToast({ type: "success", title: "Premium · 1 month free", description: "Verified blue tick granted via referrals" });
+          get().addToast({ type: "success", title: "Premium · 1 week free", description: "Verified blue tick granted via referrals" });
         }
         // After 10 refers this user's own referral code is disabled (per-user —
         // other users keep earning on theirs).
@@ -1554,6 +1791,8 @@ export const useApp = create<AppState>()(
       enterReferralCode: async (code) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         if (!get().referralsEnabled) return { ok: false, error: "Referral program disabled by the admin." };
         if (get().referralCodeEntered) return { ok: false, error: "You already entered a referral code — it can't be changed." };
         const c = code.trim().toLowerCase().replace(/^@/, "");
@@ -1561,29 +1800,31 @@ export const useApp = create<AppState>()(
         const own = (get().referralCode || "").toLowerCase().replace(/^@/, "");
         if (own === c) return { ok: false, error: "That's your own code — share it with friends instead." };
 
-        // Resolve the code to a real user so THEY get rewarded.
+        // Resolve the code to a real user (DB mode) so THEY get rewarded.
         let inviter: { handle: string } | null = null;
         if (isSupabaseReady()) {
           inviter = await findUserByCode(c).catch(() => null);
-          // Never lock the user in on a code that resolves to nobody — otherwise
-          // a typo would permanently burn their one-time entry.
-          if (!inviter) return { ok: false, error: "That referral code doesn't exist — check it and try again." };
-          if (inviter.handle === currentUserId()) return { ok: false, error: "That's your own code — share it with friends instead." };
         } else {
           const u = getUser(c);
           inviter = u && u.handle ? u : null;
         }
 
-        // One-time, irreversible: friend2 can never enter another code.
-        set({ invitedBy: inviter?.handle ?? c, referralCodeEntered: true });
-        if (isSupabaseReady() && inviter) {
+        // A code that doesn't resolve to a real user must be rejected: never
+        // lock the account to a bogus code (one entry per account, forever)
+        // and never write a reward row to a nonexistent owner — the friend is
+        // told to double-check the code and try again.
+        if (!inviter) {
+          return { ok: false, error: "That referral code wasn't found — check the spelling with your friend and try again." };
+        }
+        set({ invitedBy: c, referralCodeEntered: true });
+        if (isSupabaseReady()) {
           // Write the claim into FRIEND1's referrals rows (owner = their uid) so
-          // their client auto-credits +$0.49 on the next hydrate. The client_id is
-          // deterministic (inviter + me), so a retry can never double-credit.
-          const me = get().displayHandle || get().handle || currentUserId();
+          // their client auto-credits +$0.49 on the next hydrate.
+          const owner = inviter.handle;
+          const me = get().displayHandle || get().handle || "you";
           queueWrite("referrals", {
-            client_id: `${inviter.handle}:${currentUserId()}`,
-            owner: inviter.handle,
+            client_id: `${currentUserId()}:${Date.now()}`,
+            owner,
             handle: me,
             at_label: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
           });
@@ -1592,10 +1833,9 @@ export const useApp = create<AppState>()(
         get().addToast({
           type: "success",
           title: "Referral code accepted",
-          description: inviter ? `You joined via @${inviter.handle} — they just earned $0.49` : "Code saved — your inviter gets rewarded when the referral is verified.",
+          description: `You joined via @${inviter.handle} — thank them later!`,
         });
         return { ok: true };
-
       },
 
       mergeReferralsFromDb: (list) => {
@@ -1676,8 +1916,20 @@ export const useApp = create<AppState>()(
           rating: Math.round(((cur.rating * cur.count + stars) / (cur.count + 1)) * 10) / 10,
           count: cur.count + 1,
         };
-        set((s) => ({ userRatings: { ...s.userRatings, [handle]: next } }));
-        get().syncCollections(["userRatings"]);
+        set((s) => {
+          const gives = s.loyaltyGives ?? { five: 0, four: 0 };
+          return {
+            userRatings: { ...s.userRatings, [handle]: next },
+            // Loyal rater: every 5★ rating given → +1% loyalty rate, every 4★ → +0.5%.
+            loyaltyGives:
+              stars === 5
+                ? { ...gives, five: gives.five + 1 }
+                : stars === 4
+                  ? { ...gives, four: gives.four + 1 }
+                  : gives,
+          };
+        });
+        get().syncCollections(["userRatings", "profile"]);
         get().addToast({
           type: "success",
           title: `Thanks — you rated @${handle} ${stars}★`,
@@ -1722,6 +1974,8 @@ export const useApp = create<AppState>()(
       boostTask: (id) => {
         const sec = get().security;
         if (sec.status === "restricted") return { ok: false, error: restrictedMessage(sec.reasons) };
+        const bc = banCheck();
+        if (bc) return bc;
         if (!get().isPremium) return { ok: false, error: "Boosting posts is a Premium feature — upgrade to access it." };
         if (get().usdt < BOOST_PRICE)
           return { ok: false, error: `Boosting costs $${BOOST_PRICE.toFixed(2)} — insufficient balance (${get().usdt.toFixed(2)} USDT).` };
@@ -1751,9 +2005,9 @@ export const useApp = create<AppState>()(
       },
 
       loyaltyRate: () => {
-        const base = get().successRate || 94;
-        const pending = get().submissions.filter((s) => s.posterHandle === get().handle && s.status === "pending").length;
-        return Math.max(0, Math.round((base - pending * LOYALTY_PENALTY_PER_PENDING) * 10) / 10);
+        // Loyal rater: base success rate + 1% per 5★ given + 0.5% per 4★ given,
+        // capped at the configured max (100% default) — see lib/loyalty.ts.
+        return calcLoyaltyRate(get().successRate || 94, get().loyaltyGives);
       },
 
       postsLeftToday: () => {
@@ -1793,7 +2047,8 @@ export const useApp = create<AppState>()(
         set((s) => ({ notifications: [{ ...n, id: uid(), read: false }, ...s.notifications] }));
         get().syncCollections(["notifications"]);
       },
-    }),
+      };
+    },
     {
       name: "promopulse-state-v1",
       skipHydration: true,
@@ -1820,6 +2075,7 @@ export const useApp = create<AppState>()(
             rating: 4.5,
             ratingCount: 0,
             successRate: 90,
+            loyaltyGives: { five: 0, four: 0 },
             liked: {},
             daily: { day: "", posts: 0, leadsOut: 0, leadsIn: 0, leadsOutPerPost: {} },
           };
@@ -1830,6 +2086,7 @@ export const useApp = create<AppState>()(
         usdt: s.usdt,
         promoBalance: s.promoBalance,
         userRatings: s.userRatings,
+        loyaltyGives: s.loyaltyGives,
         isPremium: s.isPremium,
         premiumPlanId: s.premiumPlanId,
         premiumExpiry: s.premiumExpiry,
@@ -1851,15 +2108,12 @@ export const useApp = create<AppState>()(
         creditedTx: s.creditedTx,
         liked: s.liked,
         daily: s.daily,
-        referralsEnabled: s.referralsEnabled,
-        referralLocked: s.referralLocked,
-        // One-time referral entry — persisted so friend2 can never enter a
-        // second code after a reload.
         referralCodeEntered: s.referralCodeEntered,
         invitedBy: s.invitedBy,
+        referralsEnabled: s.referralsEnabled,
+        referralLocked: s.referralLocked,
         contactSaved: s.contactSaved,
         chats: s.chats,
-
       }),
     }
   )

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ClipboardList, Pause, Play, CheckCircle2, XCircle, Gift, Star, Clock, Users, BadgeCheck, Hash, Trash2, Send, Link2 } from "lucide-react";
+import { ClipboardList, Pause, Play, CheckCircle2, XCircle, Gift, Star, Clock, Users, BadgeCheck, Hash, Trash2, Send, Link2, ShieldAlert } from "lucide-react";
 import { PLATFORM_META, getUser } from "@/lib/mock-data";
 import { useApp, planLimits } from "@/lib/store";
 import { showPageInterstitial } from "@/lib/monetag";
@@ -17,7 +17,7 @@ const STATUS_STYLE = {
 } as const;
 
 export default function Campaigns() {
-  const { campaigns, submissions, setCampaignStatus, deleteAd, approveSubmission, rejectSubmission, addToast, daily, isPremium, premiumPlanId, handle } = useApp();
+  const { campaigns, submissions, setCampaignStatus, deleteAd, approveSubmission, rejectSubmission, addToast, daily, isPremium, premiumPlanId, handle, refreshSubmissions } = useApp();
   const [tab, setTab] = useState<"mine" | "all">("mine");
   const [rejecting, setRejecting] = useState<Submission | null>(null);
   const [reason, setReason] = useState("");
@@ -25,8 +25,11 @@ export default function Campaigns() {
 
   // Rewarded interstitial when the user opens the Campaigns page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!isPremium) void showPageInterstitial();
+    // Pull the latest submissions from the DB so new claims reach the
+    // publisher immediately (bypasses the 15-min marketplace cache).
+    void refreshSubmissions();
+  }, [refreshSubmissions]);
 
   const limits = planLimits(isPremium, premiumPlanId);
   const mine = campaigns.filter((c) => c.posterHandle === handle);
@@ -62,6 +65,24 @@ export default function Campaigns() {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
+      {/* Stay-in-app safety warning — the app is not responsible for losses outside */}
+      <div className="rounded-2xl border border-rose-400/25 bg-gradient-to-br from-rose-500/10 via-transparent to-transparent p-4 flex items-start gap-3">
+        <ShieldAlert className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
+        <div className="text-xs text-gray-300 leading-relaxed">
+          <span className="font-bold text-rose-300">Stay inside the app.</span> Never move chats to Telegram / WhatsApp
+          to discuss a deal — PromoPulse is <span className="font-bold text-white">not responsible</span> for any loss
+          outside the app.{" "}
+          {!isPremium && (
+            <a
+              href="/profile"
+              className="font-bold text-violet-300 underline decoration-violet-400/40 underline-offset-2 hover:text-violet-200"
+            >
+              Go Premium for secure in-app chat
+            </a>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <div className="relative overflow-hidden rounded-3xl glass-strong border border-white/10 p-6 lg:p-8 bg-grid">
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-brand-cyan/10 pointer-events-none" />

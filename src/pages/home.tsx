@@ -8,7 +8,6 @@ import PlatformIcon from "@/components/platform-icon";
 import TaskModal from "@/components/task-modal";
 import BanBanner from "@/components/ban-banner";
 import ReferralBanner from "@/components/referral-banner";
-
 import FollowButton from "@/components/follow-button";
 import VerifiedTick from "@/components/verified-tick";
 import clsx from "clsx";
@@ -43,6 +42,7 @@ export default function EarnTasks() {
   const storeTasks = useApp((s) => s.tasks);
   const submissions = useApp((s) => s.submissions);
   const myHandle = useApp((s) => s.handle);
+  const isPremium = useApp((s) => s.isPremium);
   const liked = useApp((s) => s.liked);
   const toggleLike = useApp((s) => s.toggleLike);
   const boostTask = useApp((s) => s.boostTask);
@@ -55,8 +55,8 @@ export default function EarnTasks() {
 
   // Rewarded interstitial when the user opens the Earn page (rate-limited).
   useEffect(() => {
-    void showPageInterstitial();
-  }, []);
+    if (!isPremium) void showPageInterstitial();
+  }, [isPremium]);
 
   const tasks = useMemo(() => {
     let list = storeTasks.slice();
@@ -109,7 +109,7 @@ export default function EarnTasks() {
     if (startingId) return; // an ad is already playing for another task
     setStartingId(t.id);
     try {
-      await showMonetagInterstitial();
+      if (!isPremium) await showMonetagInterstitial();
     } finally {
       setStartingId(null);
     }
@@ -140,7 +140,7 @@ export default function EarnTasks() {
             </h1>
             <p className="mt-3 text-gray-400 max-w-2xl">
               Complete social tasks — follow, join, retweet, like — and get
-              escrowed USDT sent straight to your wallet. Every claim goes
+              USDT paid to your wallet after the publisher approves. Every claim goes
               through reviewer approval with screenshot proof.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -160,7 +160,6 @@ export default function EarnTasks() {
 
       {/* Referral program banner */}
       <ReferralBanner />
-
 
       {/* Feed interests — tag-based matching */}
       <div className="glass rounded-2xl border border-white/10 px-4 py-3">
@@ -470,14 +469,14 @@ function Stat({
     emerald: "from-emerald-500/20 to-transparent border-emerald-400/20",
   }[tone];
   return (
-    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br min-w-0", toneBg)}>
+    <div className={clsx("rounded-2xl p-4 border bg-gradient-to-br", toneBg)}>
       <div className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-        <span className="shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
+        {icon} {label}
       </div>
-      <div className="font-extrabold text-xl lg:text-2xl tabular mt-1 leading-tight break-words">{value}</div>
-      {suffix && <div className="text-[11px] lg:text-xs text-gray-400 mt-0.5 leading-snug">{suffix}</div>}
+      <div className="mt-1">
+        <div className="font-extrabold text-xl sm:text-2xl tabular leading-tight break-words">{value}</div>
+        {suffix && <div className="text-[11px] text-gray-400 leading-tight break-words">{suffix}</div>}
+      </div>
     </div>
   );
-
 }

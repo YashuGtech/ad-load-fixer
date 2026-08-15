@@ -1,11 +1,12 @@
 import { isAdmin } from "./admin";
+import { emailUserInfo } from "./supabase";
 
 /**
  * Telegram Mini App anti-abuse guard.
  *
  * Goals (client-side only — there is intentionally NO backend):
- *   1. Running outside Telegram is restricted when REQUIRE_TELEGRAM=1
- *      (the app is a Telegram Mini App — browser access is blocked).
+ *   1. Anonymous running outside Telegram is restricted when REQUIRE_TELEGRAM=1;
+ *      signed-in email accounts are allowed in browser mode.
  *   2. One Telegram account per device (multi-account → restricted) —
  *      TEMPORARILY DISABLED via NEXT_PUBLIC_ALLOW_MULTI_ACCOUNT=1 (owner
  *      request). Set it back to 0 to re-enable the multi-account ban.
@@ -16,7 +17,7 @@ import { isAdmin } from "./admin";
 
 export type SecurityReason =
   | "MULTI_ACCOUNT" // same device, different Telegram account (disabled while ALLOW_MULTI_ACCOUNT=1)
-  | "NOT_IN_TELEGRAM"; // no initData — restricted when REQUIRE_TELEGRAM
+  | "NOT_IN_TELEGRAM"; // no initData and no email account when required
 
 export interface SecurityVerdict {
   status: "ok" | "warn" | "restricted";
@@ -136,8 +137,10 @@ export async function checkSecurity(): Promise<SecurityVerdict> {
   if (inFlight) return inFlight;
 
   inFlight = (async (): Promise<SecurityVerdict> => {
+    // Email/password accounts are a supported first-class identity now. The
+    // legacy Telegram-only flag must never restrict a signed-in browser user.
     const requireTelegram =
-      import.meta.env.VITE_REQUIRE_TELEGRAM === "1";
+      import.meta.env.VITE_REQUIRE_TELEGRAM === "1" && !emailUserInfo();
     const rec = readRecord();
     const fp = deviceFingerprint();
     rec.fingerprint = fp;
