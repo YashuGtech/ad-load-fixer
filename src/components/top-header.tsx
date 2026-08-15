@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "@/lib/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck, Zap, LogOut } from "lucide-react";
+import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck, LogOut } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { emailUserInfo, signOutEmail } from "@/lib/supabase";
 import { reasonLabel } from "@/lib/security";
@@ -19,7 +19,7 @@ const TIER_GRADIENT = {
 } as const;
 
 export default function TopHeader() {
-  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle, pageCredits } = useApp();
+  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle } = useApp();
   const [deposit, setDeposit] = useState(false);
   const [emailAccount, setEmailAccount] = useState<string | null>(null);
   const restricted = security.status === "restricted";

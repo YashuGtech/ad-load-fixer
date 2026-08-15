@@ -150,7 +150,7 @@ export default function EarnTasks() {
           </div>
 
           {/* Stats panel — platform growth numbers */}
-          <div className="grid grid-cols-3 lg:grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
             <Stat icon={<BadgeCheck className="w-4 h-4" />} label="Leads done" value="1k+" suffix="successful leads" tone="cyan" />
             <Stat icon={<Sparkles className="w-4 h-4" />} label="Posts published" value="397" suffix="campaigns" tone="violet" />
             <Stat icon={<Users className="w-4 h-4" />} label="USDT generated" value="$3,467" suffix="paid to earners" tone="emerald" />
