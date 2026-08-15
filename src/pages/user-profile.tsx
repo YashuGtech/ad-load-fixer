@@ -13,8 +13,7 @@ import SubmissionStatus from "@/components/submission-status";
 import PlatformIcon from "@/components/platform-icon";
 import clsx from "clsx";
 
-export default function UserPage({ params }: { params: { handle: string } }) {
-  const handle = params.handle;
+export default function UserPage({ handle }: { handle: string }) {
   const profile = getUser(handle);
   const { submissions, tasks, following, isPremiumUser, isBanned, handle: myHandle, isPremium: viewerIsPremium } = useApp();
   const isYou = handle === myHandle;

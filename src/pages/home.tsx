@@ -6,7 +6,6 @@ import { useApp } from "@/lib/store";
 import { showMonetagInterstitial, showPageInterstitial } from "@/lib/monetag";
 import PlatformIcon from "@/components/platform-icon";
 import TaskModal from "@/components/task-modal";
-import AdEarnCard from "@/components/ad-earn-card";
 import BanBanner from "@/components/ban-banner";
 import ReferralBanner from "@/components/referral-banner";
 import FollowButton from "@/components/follow-button";
@@ -212,7 +211,6 @@ export default function EarnTasks() {
       </div>
 
       {/* Watch a rewarded ad → +1 page credit (gated pages cost 1 credit each) */}
-      <AdEarnCard />
 
       {/* Filters */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -475,9 +473,9 @@ function Stat({
       <div className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
         {icon} {label}
       </div>
-      <div className="font-extrabold text-2xl tabular mt-1">
-        {value}
-        {suffix && <span className="text-sm text-gray-400 ml-1">{suffix}</span>}
+      <div className="mt-1">
+        <div className="font-extrabold text-xl sm:text-2xl tabular leading-tight break-words">{value}</div>
+        {suffix && <div className="text-[11px] text-gray-400 leading-tight break-words">{suffix}</div>}
       </div>
     </div>
   );
