@@ -897,7 +897,7 @@ export function syncNow(scopes: SyncScope[], state: any): void {
         );
         break;
       case "chats":
-        Object.values(state.chats ?? {})
+        (Object.values(state.chats ?? {}) as ChatMessage[][])
           .flat()
           .forEach((m: ChatMessage) => queueWrite("chat_messages", chatMessageToRow(m)));
         break;
