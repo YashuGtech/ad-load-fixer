@@ -25,6 +25,8 @@ import {
   DEPOSIT_NETWORKS,
   DEPOSIT_PACKAGES,
   NOWPAY_NETWORKS,
+  CUSTOM_BONUS_MIN,
+  customDeposit,
   hasFirstDepositBonus,
 } from "@/lib/payments";
 import { isSupabaseReady } from "@/lib/supabase";
@@ -66,6 +68,10 @@ export default function DepositModal({ onClose }: { onClose: () => void }) {
   const [method, setMethod] = useState<Method>("nowpayments");
   const [networkId, setNetworkId] = useState<string>("bsc");
   const [pkg, setPkg] = useState(DEPOSIT_PACKAGES[3]);
+  const [customAmt, setCustomAmt] = useState("");
+  const [customError, setCustomError] = useState<string | null>(null);
+  const [customApplied, setCustomApplied] = useState(false);
+  const [customMode, setCustomMode] = useState(false); // amount was custom-entered (not an exact package)
   const [txHash, setTxHash] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,12 +98,32 @@ export default function DepositModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /** Lock in a custom deposit amount (above $5 → +75% cashback on every deposit). */
+  const applyCustom = () => {
+    const amt = Math.round(Number(customAmt) * 100) / 100;
+    if (!isFinite(amt) || amt <= CUSTOM_BONUS_MIN) {
+      setCustomError(`Custom deposits must be above $${CUSTOM_BONUS_MIN.toFixed(2)} (min $${(CUSTOM_BONUS_MIN + 0.01).toFixed(2)}).`);
+      return;
+    }
+    const p = customDeposit(amt);
+    if (!p) {
+      setCustomError("Invalid amount.");
+      return;
+    }
+    setPkg(p);
+    setCustomMode(!DEPOSIT_PACKAGES.some((x) => x.amount === p.amount));
+    setCustomError(null);
+    setCustomApplied(true);
+  };
+
   /** Create (or reuse) the NOWPayments order, then show the pay step. */
   const payWithNowpayments = async () => {
     setBusy(true);
     setError(null);
     if (!order) {
-      setFirstBonus(!bonusUsed ? pkg.bonus : 0);
+      // Custom deposits above $5 earn +75% cashback on EVERY deposit;
+      // packages keep the first-deposit-only bonus.
+      setFirstBonus(customMode ? pkg.bonus : !bonusUsed ? pkg.bonus : 0);
       const r = await createDeposit(pkg.amount, {
         purpose: "deposit",
         network: networkId,
@@ -360,15 +386,19 @@ export default function DepositModal({ onClose }: { onClose: () => void }) {
                 {DEPOSIT_PACKAGES.map((p) => (
                   <button
                     key={p.amount}
-                    onClick={() => setPkg(p)}
+                    onClick={() => {
+                      setPkg(p);
+                      setCustomMode(false);
+                      setCustomApplied(false);
+                    }}
                     className={clsx(
                       "rounded-2xl p-4 border text-left transition-all relative overflow-hidden",
-                      pkg.amount === p.amount
+                      pkg.amount === p.amount && !customApplied
                         ? "border-emerald-400/50 bg-emerald-500/10"
                         : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/20"
                     )}
                   >
-                    {!bonusUsed && (
+                    {!bonusUsed && p.bonusPct > 0 && (
                       <span className="absolute top-2.5 right-2.5 text-[10px] font-black px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/25">
                         +{p.bonusPct}%
                       </span>
@@ -378,10 +408,55 @@ export default function DepositModal({ onClose }: { onClose: () => void }) {
                       You get <b className="text-emerald-300 tabular">{fmtUsdt(p.credited)}</b>
                     </div>
                     <div className="text-[10px] text-gray-500 mt-0.5">
-                      {bonusUsed ? "Standard credit" : `+${fmtUsdt(p.bonus)} bonus`}
+                      {bonusUsed
+                        ? "Standard credit"
+                        : p.bonus > 0
+                          ? `+${fmtUsdt(p.bonus)} bonus`
+                          : "No bonus"}
                     </div>
                   </button>
                 ))}
+              </div>
+
+              {/* Custom deposit — any amount above $5 gets +75% cashback on EVERY deposit */}
+              <div className="relative mt-4 rounded-2xl border border-dashed border-amber-400/25 bg-amber-500/[0.04] p-3">
+                <div className="text-[10px] uppercase tracking-widest text-amber-300 font-semibold">Custom amount</div>
+                <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  Enter any amount above $5 — get <b className="text-amber-300">+75% cashback</b> on every custom deposit.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="number"
+                    min={CUSTOM_BONUS_MIN + 0.01}
+                    step={0.01}
+                    value={customAmt}
+                    onChange={(e) => {
+                      setCustomAmt(e.target.value);
+                      setCustomError(null);
+                      setCustomApplied(false);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && applyCustom()}
+                    placeholder={`Min $${(CUSTOM_BONUS_MIN + 0.01).toFixed(2)}`}
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-sm tabular placeholder:text-gray-500 focus:outline-none focus:border-amber-400/40"
+                  />
+                  <button
+                    onClick={applyCustom}
+                    className="shrink-0 rounded-xl px-3.5 py-2.5 text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-amber-200 transition-all"
+                  >
+                    Apply
+                  </button>
+                </div>
+                {customError && <div className="mt-2 text-[11px] text-rose-300">{customError}</div>}
+                {customApplied && !customError && (
+                  <div className="mt-2 text-[11px] text-emerald-300 font-semibold">
+                    Custom deposit set — pay {fmtUsdt(pkg.amount)} → you get {fmtUsdt(pkg.credited)}{" "}
+                    {customMode
+                      ? "(+75% cashback)"
+                      : pkg.bonusPct > 0
+                        ? `(+${pkg.bonusPct}% bonus)`
+                        : "(no bonus)"}
+                  </div>
+                )}
               </div>
               <div className="relative mt-4 flex gap-2.5">
                 <button onClick={() => setStep("network")} className="btn-ghost flex items-center justify-center gap-1.5 px-4">
@@ -642,9 +717,9 @@ export default function DepositModal({ onClose }: { onClose: () => void }) {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-400 flex items-center gap-1.5">
                       <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 text-[10px] font-black">
-                        FIRST DEPOSIT
+                        {customMode ? "CUSTOM CASHBACK" : "FIRST DEPOSIT"}
                       </span>
-                      Bonus (+{pkg.bonusPct}%)
+                      {customMode ? "Cashback" : "Bonus"} (+{pkg.bonusPct}%)
                     </span>
                     <b className="text-emerald-300 tabular">+{fmtUsdt(result.bonus)}</b>
                   </div>

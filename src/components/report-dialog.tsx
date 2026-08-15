@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Flag, ShieldAlert, X, Ban } from "lucide-react";
+import { Flag, ShieldAlert, X, Ban, Loader2 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import clsx from "clsx";
 
@@ -19,7 +19,8 @@ export default function ReportDialog({
   const isPremiumUser = useApp((s) => s.isPremiumUser);
   const [reason, setReason] = useState(REASONS[0]);
   const [note, setNote] = useState("");
-  const [result, setResult] = useState<{ banned: boolean; durationLabel: string | null; count: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ banned: boolean; durationLabel: string | null; count: number; threshold: number } | null>(null);
 
   const premium = isPremiumUser(handle);
   const threshold = premium ? 10 : 2;
@@ -71,7 +72,7 @@ export default function ReportDialog({
                     <>
                       This report counts toward @{handle}
                       {premium ? "s premium moderation (10 reports/hour → 72h ban)" : "s moderation (2 reports/hour → 7-day ban)"}.
-                      <span className="font-bold text-amber-300"> {result.count}/{threshold}</span> in the last hour.
+                      <span className="font-bold text-amber-300"> {result.count}/{result.threshold}</span> in the last hour.
                     </>
                   )}
                 </p>
@@ -136,10 +137,18 @@ export default function ReportDialog({
                   Cancel
                 </button>
                 <button
-                  onClick={() => setResult(reportUser(handle, note.trim() ? `${reason} — ${note.trim()}` : reason))}
-                  className="btn-danger flex-1 flex items-center justify-center gap-2"
+                  onClick={async () => {
+                    if (busy) return;
+                    setBusy(true);
+                    const res = await reportUser(handle, note.trim() ? `${reason} — ${note.trim()}` : reason);
+                    setBusy(false);
+                    setResult(res);
+                  }}
+                  disabled={busy}
+                  className="btn-danger flex-1 flex items-center justify-center gap-2 disabled:opacity-60"
                 >
-                  <Flag className="w-4 h-4" /> Submit report
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4" />}
+                  {busy ? "Submitting…" : "Submit report"}
                 </button>
               </div>
             </>

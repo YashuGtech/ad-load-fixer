@@ -55,10 +55,10 @@ export function tgId(): number | null {
 
 export function isAdmin(): boolean {
   if (typeof window === "undefined") return false;
-  const ids = String(import.meta.env.VITE_ADMIN_TG_ID || "")
+  const ids = (import.meta.env.VITE_ADMIN_TG_ID || "")
     .split(",")
-    .map((s: string) => Number(s.trim()))
-    .filter((n: number) => Number.isFinite(n) && n > 0);
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
   const id = tgId();
   if (ids.length > 0 && id !== null && ids.includes(id)) return true;
   const pass = import.meta.env.VITE_ADMIN_PASSCODE || DEFAULT_PASSCODE;

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "@/lib/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Plus, Search, ChevronDown, Settings, ShieldAlert, ShieldCheck, Zap, LogOut } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { emailUserInfo, signOutEmail } from "@/lib/supabase";
 import { reasonLabel } from "@/lib/security";
 import UserAvatar from "@/components/user-avatar";
 import NotificationDropdown from "@/components/notification-dropdown";
@@ -18,9 +19,14 @@ const TIER_GRADIENT = {
 } as const;
 
 export default function TopHeader() {
-  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle } = useApp();
+  const { usdt, isLiveTick, lastDelta, tier, isPremium, security, displayHandle, pageCredits } = useApp();
   const [deposit, setDeposit] = useState(false);
+  const [emailAccount, setEmailAccount] = useState<string | null>(null);
   const restricted = security.status === "restricted";
+
+  useEffect(() => {
+    setEmailAccount(emailUserInfo()?.email ?? null);
+  }, []);
 
   return (
     <header className="sticky top-0 z-20 lg:ml-[244px] px-4 lg:px-8 py-4 backdrop-blur-xl bg-bg-base/60 border-b border-white/5">
@@ -41,6 +47,20 @@ export default function TopHeader() {
         </div>
 
         <div className="flex items-center gap-2 lg:gap-3">
+          {/* Page credits — earned by watching rewarded ads on Earn, spent to open pages */}
+          <Link
+            href="/"
+            title="Page credits — watch ads on Earn to earn more"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl glass border border-amber-400/20 hover:border-amber-400/40 transition-all"
+          >
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-[0_0_12px_#F59E0B]">
+              <Zap className="w-3.5 h-3.5 text-white" />
+            </div>
+            <div className="leading-tight">
+              <div className="text-[10px] uppercase tracking-widest text-gray-500">Credits</div>
+              <div className="font-bold tabular text-base">{pageCredits}</div>
+            </div>
+          </Link>
 
           {/* Live USDT widget */}
           <div className="relative">
@@ -126,6 +146,17 @@ export default function TopHeader() {
           <button className="hidden sm:flex w-10 h-10 rounded-xl glass border border-white/10 hover:border-white/20 transition-all items-center justify-center">
             <Settings className="w-4 h-4" />
           </button>
+
+          {/* Browser account sign-out. Telegram users continue to use their Mini App session. */}
+          {emailAccount && (
+            <button
+              onClick={() => void signOutEmail().then(() => window.location.reload())}
+              title={`Sign out ${emailAccount}`}
+              className="hidden sm:flex w-10 h-10 rounded-xl glass border border-white/10 hover:border-rose-400/30 hover:text-rose-300 transition-all items-center justify-center"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Avatar */}
           <button className="flex items-center gap-2 pl-1 pr-3 py-1.5 rounded-xl glass border border-white/10 hover:border-white/20 transition-all">

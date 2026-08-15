@@ -5,6 +5,7 @@ import { type Task, PLATFORM_META, getUser } from "@/lib/mock-data";
 import PlatformIcon from "./platform-icon";
 import FollowButton from "./follow-button";
 import { useApp } from "@/lib/store";
+import { isTelegramWebApp } from "@/lib/supabase";
 import clsx from "clsx";
 
 export default function TaskModal({
@@ -14,7 +15,8 @@ export default function TaskModal({
   task: Task | null;
   onClose: () => void;
 }) {
-  const { submitClaim } = useApp();
+  const { submitClaim, isPremium } = useApp();
+  const inTelegram = isTelegramWebApp();
   const [timer, setTimer] = useState(600);
   const [proof, setProof] = useState<{ file?: string; handle?: string; note?: string; link?: string }>({});
   const [submitted, setSubmitted] = useState(false);
@@ -214,7 +216,7 @@ export default function TaskModal({
                     <span className="text-semantic-warning font-semibold">7 days</span>.
                   </li>
                   <li>
-                    Take a screenshot and send it to the advertiser on Telegram as proof.
+                    {inTelegram ? "Take a screenshot and send it to the advertiser on Telegram as proof." : "Complete the action, then enter a short proof note or the handle/link you used below."}
                   </li>
                 </ol>
               )}
@@ -245,13 +247,34 @@ export default function TaskModal({
               </div>
             )}
 
+            {/* Stay-in-app safety warning */}
+            <div className="relative mt-4 rounded-xl p-3 border border-rose-400/25 bg-gradient-to-br from-rose-500/10 to-transparent flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
+              <div className="text-xs text-gray-300 leading-relaxed">
+                <span className="font-bold text-rose-300">Stay inside the app.</span> Never move chats to
+                Telegram / WhatsApp — PromoPulse is <span className="font-bold text-white">not responsible</span> for
+                any loss outside the app.
+                {!isPremium && (
+                  <>
+                    {" "}
+                    <a
+                      href="/profile"
+                      className="font-bold text-violet-300 underline decoration-violet-400/40 underline-offset-2 hover:text-violet-200"
+                    >
+                      Go Premium for secure in-app chat
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+
             {/* Proof input */}
             <div className="relative mt-5">
               <div className="text-[10px] uppercase tracking-widest text-cyan-300 font-semibold mb-2">
                 {isReferral ? "Proof of Referral" : "Submit Proof"}
               </div>
 
-              {posterTg ? (
+              {inTelegram && posterTg ? (
                 <a
                   href={`https://t.me/${posterTg}?text=${encodeURIComponent(proofMsg)}`}
                   target="_blank"
@@ -261,17 +284,16 @@ export default function TaskModal({
                   <Send className="w-4 h-4" /> Send screenshot to @{posterTg}
                 </a>
               ) : (
-                <div className="rounded-2xl py-3 px-4 bg-amber-500/10 border border-amber-400/25 text-xs text-amber-200/80 flex items-start gap-2">
+                <div className="rounded-2xl py-3 px-4 bg-cyan-500/10 border border-cyan-400/25 text-xs text-cyan-200/80 flex items-start gap-2">
                   <Send className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    No advertiser Telegram on file — send your screenshot through{" "}
-                    <span className="font-bold">Leads → Contact</span> after submitting.
+                    {inTelegram ? "No advertiser Telegram on file — submit your proof below and follow up through Leads → Contact." : "Browser account: submit proof directly in PromoPulse. No Telegram account is required."}
                   </span>
                 </div>
               )}
               <p className="mt-2 text-[11px] text-gray-500 flex items-start gap-1.5">
                 <Send className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                Screenshots go to the advertiser on Telegram — they verify your claim there, then approve it here in the app.
+                {inTelegram ? "Screenshots can be shared with the advertiser on Telegram, then verified here in the app." : "Your proof is sent to the advertiser in-app for review."}
               </p>
 
               {isReferral ? (
@@ -303,7 +325,7 @@ export default function TaskModal({
                 <div className="mt-3 relative">
                   <ImgIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                   <input
-                    placeholder="Your @handle used for this task"
+                    placeholder={inTelegram ? "Your @handle used for this task" : "Proof note, handle, or link used for this task"}
                     value={proof.handle ?? ""}
                     onChange={(e) => setProof((p) => ({ ...p, handle: e.target.value }))}
                     className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-sm placeholder:text-gray-500 focus:outline-none focus:border-brand-cyan/40 focus:ring-1 focus:ring-brand-cyan/30"

@@ -31,7 +31,7 @@ type MonetagOptions = {
 
 declare global {
   interface Window {
-    show_11537060?: (opts?: Record<string, unknown>) => Promise<unknown>;
+    show_11537060?: (opts?: MonetagOptions) => Promise<unknown>;
   }
 }
 
@@ -59,8 +59,7 @@ export const AD_FAIL_MESSAGES: Record<
 > = {
   "sdk-blocked": {
     title: "Ads can't load",
-    description:
-      "The ad network is blocked or unreachable — check your connection or turn off your ad blocker.",
+    description: "The ad network is blocked or unreachable — check your connection or turn off your ad blocker.",
   },
   "sdk-timeout": {
     title: "Ads aren't ready",

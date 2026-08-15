@@ -64,9 +64,9 @@ export interface DepositPackage {
   credited: number;
 }
 
-/** First-deposit bonus ladder (new accounts only): 1→3, 3→4.5, 5→8.75, 10→20. */
+/** First-deposit bonus ladder (new accounts only): 1→1 (no bonus), 3→4.5, 5→8.75, 10→20. */
 const TIERS: Array<[number, number]> = [
-  [1, 200],
+  [1, 0],
   [3, 50],
   [5, 75],
   [10, 100],
@@ -78,6 +78,32 @@ export const DEPOSIT_PACKAGES: DepositPackage[] = TIERS.map(([amount, bonusPct])
   bonus: Math.round(amount * bonusPct) / 100,
   credited: Math.round(amount * (1 + bonusPct / 100) * 100) / 100,
 }));
+
+/** Custom deposits above this amount earn the custom cashback bonus. */
+export const CUSTOM_BONUS_MIN = 5;
+/** Cashback bonus applied to EVERY custom deposit above the minimum (not first-deposit-gated). */
+export const CUSTOM_BONUS_PCT = 75;
+
+/**
+ * Compute the package for a custom deposit amount. Amounts above $5 earn a
+ * flat +75% cashback on EVERY custom deposit; amounts at or below $5 get no
+ * bonus. Amounts that exactly match a package keep the package's own
+ * first-deposit bonus so the UI, the ledger and the verify_usdt edge function
+ * all agree.
+ */
+export function customDeposit(amount: number): DepositPackage | null {
+  const a = Math.round(Number(amount) * 100) / 100;
+  if (!isFinite(a) || a <= 0) return null;
+  const exact = DEPOSIT_PACKAGES.find((p) => p.amount === a);
+  if (exact) return exact;
+  const bonusPct = a > CUSTOM_BONUS_MIN ? CUSTOM_BONUS_PCT : 0;
+  return {
+    amount: a,
+    bonusPct,
+    bonus: Math.round(a * bonusPct) / 100,
+    credited: Math.round(a * (1 + bonusPct / 100) * 100) / 100,
+  };
+}
 
 /** True once this account has any paid deposit — the bonus ladder is first-deposit only. */
 export function hasFirstDepositBonus(deposits: Array<{ status: string; purpose?: string }>): boolean {

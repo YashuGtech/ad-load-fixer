@@ -353,6 +353,8 @@ function neutralProfile(handle: string): UserProfile {
     rating: 0,
     ratingCount: 0,
     successRate: 0,
+    fiveStarGives: 0,
+    fourStarGives: 0,
     followers: 0,
     following: 0,
     tasksDone: 0,
@@ -988,5 +990,5 @@ export const REFERRAL_MILESTONES = [
   { count: 1, label: "1 refer", reward: "+$0.49 per refer" },
   { count: 6, label: "6 refers", reward: "Withdrawal unlocked" },
   { count: 7, label: "7 refers", reward: "+$5.00 extra" },
-  { count: 10, label: "10 refers", reward: "Premium · 1 month" },
+  { count: 10, label: "10 refers", reward: "Premium · 1 week" },
 ];

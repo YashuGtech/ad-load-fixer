@@ -1,9 +1,9 @@
 import type { ComponentType } from "react";
 import {
-  Camera as InstagramIcon,
+  Instagram as InstagramIcon,
   Send as TelegramIcon,
-  Video as YoutubeIcon,
-  Bird as TwitterIcon,
+  Youtube as YoutubeIcon,
+  Twitter as TwitterIcon,
   Music2 as TiktokIcon,
   Store as PlayStoreIcon,
   AppWindow as AppStoreIcon,
